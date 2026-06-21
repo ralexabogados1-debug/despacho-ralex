@@ -87,8 +87,26 @@ export default function ClienteCivilFamiliar({
 
   return (
     <>
+      {/* Responsive: header apilado en mobile, tabla/cards alternados */}
+      <style>{`
+        @media (max-width: 520px) {
+          .civ-page-header { flex-direction: column; align-items: stretch !important; gap: 14px !important; }
+          .civ-btn-primario { width: 100%; justify-content: center; padding: 12px 18px !important; }
+        }
+        @media (max-width: 480px) {
+          .civ-modal { padding: 20px !important; }
+        }
+        @media (max-width: 720px) {
+          .civ-tabla-desktop { display: none !important; }
+          .civ-tabla-mobile { display: flex !important; }
+        }
+        @media (min-width: 721px) {
+          .civ-tabla-mobile { display: none !important; }
+        }
+      `}</style>
+
       {/* ── ENCABEZADO ── */}
-      <div style={css.pageHeader}>
+      <div className="civ-page-header" style={css.pageHeader}>
         <div>
           <h1 style={css.titulo}>Expedientes Civil / Familiar</h1>
           <p style={css.subtitulo}>
@@ -98,7 +116,7 @@ export default function ClienteCivilFamiliar({
             <strong style={{ color: T.textPrimary }}>{cnt.todos}</strong> registrados
           </p>
         </div>
-        <button onClick={() => setAbierto(true)} style={css.btnPrimario}>
+        <button onClick={() => setAbierto(true)} className="civ-btn-primario" style={css.btnPrimario}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M12 5v14M5 12h14"/>
           </svg>
@@ -144,7 +162,7 @@ export default function ClienteCivilFamiliar({
         </div>
       </div>
 
-      {/* ── TABLA ── */}
+      {/* ── TABLA (desktop) + CARDS (mobile) ── */}
       <div style={css.tabla}>
         {expedientesFiltrados.length === 0 ? (
           <div style={css.vacio}>
@@ -154,78 +172,117 @@ export default function ClienteCivilFamiliar({
             <span>No se encontraron expedientes con los filtros seleccionados</span>
           </div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={css.table}>
-              <thead>
-                <tr>
-                  {['No. Expediente', 'Cliente', 'Contraparte', 'Materia / Juicio', 'Juzgado', 'Estado', 'Próx. Término'].map(h => (
-                    <th key={h} style={css.th}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {expedientesFiltrados.map((exp) => {
-                  const proxTerm = obtenerProximoTermino(exp.tareas)
-                  const esHoy    = proxTerm === hoy
-                  const vencido  = proxTerm && proxTerm < hoy
-                  const activo   = exp.estado === 'Activo'
+          <>
+            {/* Vista tabla — pantallas anchas */}
+            <div className="civ-tabla-desktop" style={{ overflowX: 'auto' }}>
+              <table style={css.table}>
+                <thead>
+                  <tr>
+                    {['No. Expediente', 'Cliente', 'Contraparte', 'Materia / Juicio', 'Juzgado', 'Estado', 'Próx. Término'].map(h => (
+                      <th key={h} style={css.th}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {expedientesFiltrados.map((exp) => {
+                    const proxTerm = obtenerProximoTermino(exp.tareas)
+                    const esHoy    = proxTerm === hoy
+                    const vencido  = proxTerm && proxTerm < hoy
+                    const activo   = exp.estado === 'Activo'
 
-                  return (
-                    <tr key={exp.id} style={css.tr}>
-                      <td style={css.td}>
-                        <span style={{ fontWeight: 600, color: T.textPrimary, fontSize: 13 }}>
-                          {exp.numero_expediente}
-                        </span>
-                        <div style={css.sub}>{exp.ciudad || 'Huejutla'}</div>
-                      </td>
-                      <td style={css.td}>
-                        <span style={{ color: T.textPrimary, fontSize: 13 }}>
-                          {exp.clientes?.nombre_completo ?? '—'}
-                        </span>
-                        <div style={css.sub}>{exp.caracter_cliente || 'Demandante'}</div>
-                      </td>
-                      <td style={{ ...css.td, color: T.textMuted, fontSize: 13 }}>{exp.contraparte || '—'}</td>
-                      <td style={{ ...css.td, color: T.textMuted, fontSize: 13 }}>{exp.tipo_juicio || '—'}</td>
-                      <td style={css.td}>
-                        <span style={{ color: T.textMuted, fontSize: 13 }}>{exp.juzgados?.nombre ?? '—'}</span>
-                        <div style={css.sub}>{exp.juzgados?.ciudad ?? ''}</div>
-                      </td>
-                      <td style={css.td}>
-                        <span style={{
-                          ...css.pill,
-                          background: activo ? T.greenAlpha : 'rgba(251,191,36,0.08)',
-                          color:      activo ? T.green      : '#fbbf24',
-                          border:     `0.5px solid ${activo ? 'rgba(74,222,128,0.18)' : 'rgba(251,191,36,0.20)'}`,
-                        }}>
-                          {exp.estado}
-                        </span>
-                      </td>
-                      <td style={css.td}>
-                        {proxTerm ? (
-                          <span style={{
-                            fontWeight: esHoy || vencido ? 600 : 400,
-                            color: vencido ? T.red : esHoy ? '#fbbf24' : T.textMuted,
-                            fontSize: 13,
-                          }}>
-                            {vencido ? '⚠ ' : esHoy ? '● ' : ''}{proxTerm}
+                    return (
+                      <tr key={exp.id} style={css.tr}>
+                        <td style={css.td}>
+                          <span style={{ fontWeight: 600, color: T.textPrimary, fontSize: 13 }}>
+                            {exp.numero_expediente}
                           </span>
-                        ) : (
-                          <span style={{ color: T.textFaint, fontSize: 13 }}>—</span>
+                          <div style={css.sub}>{exp.ciudad || 'Huejutla'}</div>
+                        </td>
+                        <td style={css.td}>
+                          <span style={{ color: T.textPrimary, fontSize: 13 }}>
+                            {exp.clientes?.nombre_completo ?? '—'}
+                          </span>
+                          <div style={css.sub}>{exp.caracter_cliente || 'Demandante'}</div>
+                        </td>
+                        <td style={{ ...css.td, color: T.textMuted, fontSize: 13 }}>{exp.contraparte || '—'}</td>
+                        <td style={{ ...css.td, color: T.textMuted, fontSize: 13 }}>{exp.tipo_juicio || '—'}</td>
+                        <td style={css.td}>
+                          <span style={{ color: T.textMuted, fontSize: 13 }}>{exp.juzgados?.nombre ?? '—'}</span>
+                          <div style={css.sub}>{exp.juzgados?.ciudad ?? ''}</div>
+                        </td>
+                        <td style={css.td}>
+                          <span style={{
+                            ...css.pill,
+                            background: activo ? T.greenAlpha : 'rgba(251,191,36,0.08)',
+                            color:      activo ? T.green      : '#fbbf24',
+                            border:     `0.5px solid ${activo ? 'rgba(74,222,128,0.18)' : 'rgba(251,191,36,0.20)'}`,
+                          }}>
+                            {exp.estado}
+                          </span>
+                        </td>
+                        <td style={css.td}>
+                          {proxTerm ? (
+                            <span style={{
+                              fontWeight: esHoy || vencido ? 600 : 400,
+                              color: vencido ? T.red : esHoy ? '#fbbf24' : T.textMuted,
+                              fontSize: 13,
+                            }}>
+                              {vencido ? '⚠ ' : esHoy ? '● ' : ''}{proxTerm}
+                            </span>
+                          ) : (
+                            <span style={{ color: T.textFaint, fontSize: 13 }}>—</span>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Vista estilo lista de chats — mobile */}
+            <div className="civ-tabla-mobile" style={css.cardsList}>
+              {expedientesFiltrados.map((exp) => {
+                const proxTerm = obtenerProximoTermino(exp.tareas)
+                const esHoy    = proxTerm === hoy
+                const vencido  = proxTerm && proxTerm < hoy
+                const activo   = exp.estado === 'Activo'
+
+                return (
+                  <a key={exp.id} href={`/sistema/expedientes/civil/detalle?id=${exp.id}`} style={css.rowLink}>
+                    <div style={css.rowAvatar}>
+                      <i className="ti ti-scale" style={{ fontSize: 18, color: T.accent }} aria-hidden="true" />
+                    </div>
+                    <div style={css.rowBody}>
+                      <div style={css.rowTop}>
+                        <span style={css.rowTitulo}>{exp.numero_expediente}</span>
+                        {proxTerm && (
+                          <span style={{
+                            ...css.rowFecha,
+                            color: vencido ? T.red : esHoy ? '#fbbf24' : T.textFaint,
+                          }}>
+                            {esHoy ? 'Hoy' : proxTerm}
+                          </span>
                         )}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+                      </div>
+                      <div style={css.rowSub}>
+                        <span style={{ ...css.rowDot, background: activo ? T.green : '#fbbf24' }} />
+                        {exp.tipo_juicio || 'Civil / Familiar'}
+                      </div>
+                    </div>
+                    <i className="ti ti-chevron-right" style={{ fontSize: 18, color: T.textFaint, flexShrink: 0 }} aria-hidden="true" />
+                  </a>
+                )
+              })}
+            </div>
+          </>
         )}
       </div>
 
       {/* ── MODAL ── */}
       {abierto && (
         <div style={css.overlay} onClick={() => setAbierto(false)}>
-          <div style={css.modal} onClick={(e) => e.stopPropagation()}>
+          <div className="civ-modal" style={css.modal} onClick={(e) => e.stopPropagation()}>
 
             {/* Header modal */}
             <div style={css.modalHeader}>
@@ -548,7 +605,86 @@ const css = {
   table: {
     width: '100%',
     borderCollapse: 'collapse' as const,
+    minWidth: 700,
   },
+
+  // ── Vista de cards (mobile) ──
+  cardsList: {
+    display: 'none',
+    flexDirection: 'column' as const,
+    gap: 1,
+  } as React.CSSProperties,
+
+  // ── Fila estilo lista de chats (mobile) ──
+  rowLink: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 12,
+    padding: '12px 16px',
+    borderBottom: `0.5px solid ${T.border}`,
+    textDecoration: 'none',
+    color: 'inherit',
+    transition: 'background 0.12s',
+  } as React.CSSProperties,
+
+  rowAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: '50%',
+    background: T.accentAlpha,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  } as React.CSSProperties,
+
+  rowBody: {
+    flex: 1,
+    minWidth: 0,
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: 3,
+  } as React.CSSProperties,
+
+  rowTop: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 8,
+  } as React.CSSProperties,
+
+  rowTitulo: {
+    fontSize: 14.5,
+    fontWeight: 600,
+    color: T.textPrimary,
+    whiteSpace: 'nowrap' as const,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  } as React.CSSProperties,
+
+  rowFecha: {
+    fontSize: 11.5,
+    flexShrink: 0,
+    whiteSpace: 'nowrap' as const,
+  } as React.CSSProperties,
+
+  rowSub: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    fontSize: 13,
+    color: T.textMuted,
+    whiteSpace: 'nowrap' as const,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  } as React.CSSProperties,
+
+  rowDot: {
+    width: 6,
+    height: 6,
+    borderRadius: '50%',
+    flexShrink: 0,
+  } as React.CSSProperties,
 
   th: {
     padding: '10px 16px',

@@ -1,4 +1,3 @@
-// app/perfil/page.tsx
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import PerfilUsuarioCliente from './cliente'
@@ -47,7 +46,7 @@ export default async function MiPerfilPage() {
     .limit(3)
 
   return (
-    <PerfilUsuarioCliente 
+    <PerfilUsuarioCliente
       usuario={miPerfil}
       expedientes={expedientes ?? []}
       conteoTareas={tareas?.length ?? 0}

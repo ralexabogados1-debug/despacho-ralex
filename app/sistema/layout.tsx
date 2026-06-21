@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, createContext, useContext } from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
 
 const T = {
@@ -13,6 +13,10 @@ const T = {
   accentAlpha: 'rgba(58,95,184,0.12)',
   gold:        '#d4af37',
   goldAlpha:   'rgba(212,175,55,0.10)',
+  green:       '#4ade80',
+  greenAlpha:  'rgba(74,222,128,0.08)',
+  red:         '#b3434f',
+  redAlpha:    'rgba(179,67,79,0.10)',
   textPrimary: 'rgba(255,255,255,0.85)',
   textMuted:   'rgba(255,255,255,0.40)',
   textFaint:   'rgba(255,255,255,0.22)',
@@ -67,17 +71,27 @@ const BREADCRUMB: Record<string, string> = {
 
 export default function SistemaLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
+  const router   = useRouter()
 
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   )
 
-  const [sesion, setSesion]         = useState<Sesion>({ nombre: '', iniciales: '', rol: 'asistente' })
-  const [cargando, setCargando]     = useState(true)
-  const [expandido, setExpandido]   = useState(true)
-  const [hovered, setHovered]       = useState<string | null>(null)
-  const [menuMobile, setMenuMobile] = useState(false)
+  const [sesion, setSesion]               = useState<Sesion>({ nombre: '', iniciales: '', rol: 'asistente' })
+  const [cargando, setCargando]           = useState(true)
+  const [expandido, setExpandido]         = useState(true)
+  const [hovered, setHovered]             = useState<string | null>(null)
+  const [menuMobile, setMenuMobile]       = useState(false)
+  const [cerrandoSesion, setCerrandoSesion] = useState(false)
+  const [isMobile, setIsMobile]           = useState(false)
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 769)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
 
   useEffect(() => {
     const cargarUsuario = async () => {
@@ -95,6 +109,12 @@ export default function SistemaLayout({ children }: { children: React.ReactNode 
     }
     cargarUsuario()
   }, [supabase])
+
+  const handleCerrarSesion = async () => {
+    setCerrandoSesion(true)
+    await supabase.auth.signOut()
+    router.push('/login')
+  }
 
   const paginaActual = Object.entries(BREADCRUMB)
     .filter(([ruta]) => pathname === ruta || pathname?.startsWith(ruta + '/'))
@@ -126,22 +146,20 @@ export default function SistemaLayout({ children }: { children: React.ReactNode 
 
   const SidebarContent = (
     <>
-      {/* Logo */}
       <div style={css.logoRow}>
         <div style={css.logoMark}>
           <span style={{ fontSize: 13, fontWeight: 700, color: T.accent }}>JL</span>
         </div>
-        <span style={{ ...css.fadeText(expandido), fontSize: 13, fontWeight: 600, color: T.textPrimary, letterSpacing: '-0.3px' }}>
+        <span style={{ ...css.fadeText(expandido || isMobile), fontSize: 13, fontWeight: 600, color: T.textPrimary, letterSpacing: '-0.3px' }}>
           Jurídico Legal
         </span>
       </div>
 
-      {/* Navegación */}
       <nav style={css.navArea}>
         {secciones.map(({ label, items }) => (
           <div key={label}>
             {label && (
-              <span style={{ ...css.sectionLabel, ...css.fadeText(expandido) }}>
+              <span style={{ ...css.sectionLabel, ...css.fadeText(expandido || isMobile) }}>
                 {label}
               </span>
             )}
@@ -154,7 +172,7 @@ export default function SistemaLayout({ children }: { children: React.ReactNode 
                 <Link
                   key={item.path}
                   href={item.path}
-                  title={!expandido ? item.label : undefined}
+                  title={(!expandido && !isMobile) ? item.label : undefined}
                   onMouseEnter={() => setHovered(item.path)}
                   onMouseLeave={() => setHovered(null)}
                   onClick={() => setMenuMobile(false)}
@@ -176,13 +194,13 @@ export default function SistemaLayout({ children }: { children: React.ReactNode 
                   </span>
                   <span style={{
                     ...css.navLabel,
-                    ...css.fadeText(expandido),
+                    ...css.fadeText(expandido || isMobile),
                     color:      activo ? T.textPrimary : hover ? 'rgba(255,255,255,0.75)' : T.textMuted,
                     fontWeight: activo ? 500 : 400,
                   }}>
                     {item.label}
                   </span>
-                  {esAdmin && expandido && <span style={css.adminBadge}>ADMIN</span>}
+                  {esAdmin && (expandido || isMobile) && <span style={css.adminBadge}>ADMIN</span>}
                 </Link>
               )
             })}
@@ -190,48 +208,92 @@ export default function SistemaLayout({ children }: { children: React.ReactNode 
         ))}
       </nav>
 
-      {/* Avatar → link a perfil */}
-      <Link href="/sistema/perfil" style={css.sidebarFooter} title="Ver mi perfil">
-        <div style={css.avatarWrap}>
-          <div style={{
-            ...css.avatar,
-            ...(pathname === '/sistema/perfil'
-              ? { borderColor: T.accent, boxShadow: `0 0 0 2px ${T.accentAlpha}` }
-              : {}),
-          }}>
-            {sesion.iniciales}
+      <div style={css.sidebarBottom}>
+        <Link href="/sistema/perfil" style={css.sidebarFooter} title="Ver mi perfil">
+          <div style={css.avatarWrap}>
+            <div style={{
+              ...css.avatar,
+              ...(pathname === '/sistema/perfil'
+                ? { borderColor: T.accent, boxShadow: `0 0 0 2px ${T.accentAlpha}` }
+                : {}),
+            }}>
+              {sesion.iniciales}
+            </div>
+            {sesion.rol === 'admin' && <span style={css.crown}>👑</span>}
           </div>
-          {sesion.rol === 'admin' && <span style={css.crown}>👑</span>}
-        </div>
-        <div style={{ ...css.fadeText(expandido), overflow: 'hidden', minWidth: 0 }}>
-          <div style={{ fontSize: 12.5, fontWeight: 500, color: T.textPrimary, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {sesion.nombre}
+          <div style={{ ...css.fadeText(expandido || isMobile), overflow: 'hidden', minWidth: 0 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 500, color: T.textPrimary, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {sesion.nombre}
+            </div>
+            <div style={{ fontSize: 11, color: T.textFaint, whiteSpace: 'nowrap', textTransform: 'capitalize' }}>
+              {sesion.rol} · Ver perfil
+            </div>
           </div>
-          <div style={{ fontSize: 11, color: T.textFaint, whiteSpace: 'nowrap', textTransform: 'capitalize' }}>
-            {sesion.rol} · Ver perfil
-          </div>
-        </div>
-      </Link>
+        </Link>
+
+        <button
+          onClick={handleCerrarSesion}
+          disabled={cerrandoSesion}
+          title="Cerrar sesión"
+          style={{
+            ...css.btnLogout,
+            justifyContent: (expandido || isMobile) ? 'flex-start' : 'center',
+          }}
+        >
+          <span style={{ ...css.iconWrap, color: T.red, flexShrink: 0 }}>
+            <IconLogout />
+          </span>
+          <span style={{ ...css.fadeText(expandido || isMobile), fontSize: 13, color: T.red, whiteSpace: 'nowrap' }}>
+            {cerrandoSesion ? 'Cerrando...' : 'Cerrar sesión'}
+          </span>
+        </button>
+      </div>
     </>
   )
 
   return (
     <SesionCtx.Provider value={sesion}>
       <style>{`
+        @keyframes spin { to { transform: rotate(360deg) } }
+
+        * {
+          scrollbar-width: thin;
+          scrollbar-color: rgba(58,95,184,0.25) transparent;
+        }
+        *::-webkit-scrollbar { width: 5px; }
+        *::-webkit-scrollbar-track { background: transparent; }
+        *::-webkit-scrollbar-thumb {
+          background: rgba(58,95,184,0.25);
+          border-radius: 3px;
+        }
+        *::-webkit-scrollbar-thumb:hover {
+          background: rgba(58,95,184,0.45);
+        }
+
+        /* ── RESPONSIVO ── */
         @media (max-width: 768px) {
-          .sidebar-desktop { display: none !important; }
+          .sidebar-desktop  { display: none !important; }
           .topbar-hamburger { display: flex !important; }
+          .topbar-breadcrumb-sistema { display: none !important; }
+          .topbar-rol-badge { display: none !important; }
+          .footer-links { display: none !important; }
         }
         @media (min-width: 769px) {
           .sidebar-mobile-overlay { display: none !important; }
           .topbar-hamburger { display: none !important; }
+        }
+
+        .btn-logout-hover:hover {
+          background: rgba(179,67,79,0.08) !important;
+        }
+        .nav-footer-link:hover {
+          background: rgba(255,255,255,0.04) !important;
         }
       `}</style>
 
       <div style={css.shell}>
 
         {/* ── SIDEBAR DESKTOP ── */}
-        {/* ✅ El div contenedor ahora tiene width + transition sincronizados con el aside */}
         <div
           className="sidebar-desktop"
           style={{
@@ -265,7 +327,7 @@ export default function SistemaLayout({ children }: { children: React.ReactNode 
           </button>
         </div>
 
-        {/* ── SIDEBAR MOBILE ── */}
+        {/* ── SIDEBAR MOBILE (overlay) ── */}
         {menuMobile && (
           <div
             className="sidebar-mobile-overlay"
@@ -273,9 +335,9 @@ export default function SistemaLayout({ children }: { children: React.ReactNode 
           >
             <div
               onClick={() => setMenuMobile(false)}
-              style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(2px)' }}
+              style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(3px)' }}
             />
-            <aside style={{ ...css.sidebar, width: 240, position: 'relative', zIndex: 201, height: '100%' }}>
+            <aside style={{ ...css.sidebar, width: 260, position: 'relative', zIndex: 201, height: '100%' }}>
               {SidebarContent}
             </aside>
           </div>
@@ -286,6 +348,8 @@ export default function SistemaLayout({ children }: { children: React.ReactNode 
 
           {/* TOPBAR */}
           <header style={css.topbar}>
+
+            {/* Hamburguesa — solo mobile */}
             <button
               className="topbar-hamburger"
               onClick={() => setMenuMobile(true)}
@@ -297,22 +361,27 @@ export default function SistemaLayout({ children }: { children: React.ReactNode 
               <span style={css.hamburgerLine} />
             </button>
 
+            {/* Breadcrumb */}
             <div style={css.breadcrumb}>
-              <span style={{ color: T.textFaint }}>Sistema</span>
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <span className="topbar-breadcrumb-sistema" style={{ color: T.textFaint }}>Sistema</span>
+              <svg className="topbar-breadcrumb-sistema" width="12" height="12" viewBox="0 0 12 12" fill="none">
                 <path d="M4 2l4 4-4 4" stroke={T.textFaint} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
-              <span style={{ color: T.textMuted, fontWeight: 500 }}>{paginaActual}</span>
+              <span style={{ color: T.textMuted, fontWeight: 500, fontSize: 13 }}>{paginaActual}</span>
             </div>
 
+            {/* Badge de rol — oculto en mobile */}
             <div style={css.topbarActions}>
-              <div style={{
-                ...css.rolBadge,
-                ...(sesion.rol === 'admin'
-                  ? { background: T.goldAlpha, border: `0.5px solid rgba(212,175,55,0.22)`, color: T.gold }
-                  : { background: T.accentAlpha, border: `0.5px solid rgba(58,95,184,0.22)`, color: T.textAccent }),
-              }}>
-                &nbsp;<span style={{ textTransform: 'capitalize' }}>{sesion.rol}</span>
+              <div
+                className="topbar-rol-badge"
+                style={{
+                  ...css.rolBadge,
+                  ...(sesion.rol === 'admin'
+                    ? { background: T.goldAlpha, border: `0.5px solid rgba(212,175,55,0.22)`, color: T.gold }
+                    : { background: T.accentAlpha, border: `0.5px solid rgba(58,95,184,0.22)`, color: T.textAccent }),
+                }}
+              >
+                <span style={{ textTransform: 'capitalize' }}>{sesion.rol}</span>
               </div>
             </div>
           </header>
@@ -325,9 +394,9 @@ export default function SistemaLayout({ children }: { children: React.ReactNode 
           {/* FOOTER */}
           <footer style={css.footerGlobal}>
             <span style={{ color: T.textFaint, fontSize: 12 }}>
-              © {new Date().getFullYear()} Jurídico Legal — Sistema de Gestión
+              © {new Date().getFullYear()} Jurídico Legal
             </span>
-            <div style={{ display: 'flex', gap: 16 }}>
+            <div className="footer-links" style={{ display: 'flex', gap: 16 }}>
               <Link href="/sistema/perfil" style={css.footerLink}>Mi perfil</Link>
               <Link href="/sistema/agenda" style={css.footerLink}>Agenda</Link>
               <Link href="/sistema/tareas" style={css.footerLink}>Tareas</Link>
@@ -354,56 +423,56 @@ const css = {
   } as React.CSSProperties,
 
   sidebar: {
-    background:      T.surface,
-    borderRight:     `0.5px solid ${T.border}`,
-    display:         'flex',
-    flexDirection:   'column' as const,
-    padding:         '20px 0',
-    height:          '100%',
-    boxSizing:       'border-box' as const,
-    zIndex:          90,
-    transition:      'width 0.28s cubic-bezier(0.4, 0, 0.2, 1)',
-    overflow:        'hidden',
-    flexShrink:      0,
+    background:    T.surface,
+    borderRight:   `0.5px solid ${T.border}`,
+    display:       'flex',
+    flexDirection: 'column' as const,
+    padding:       '20px 0',
+    height:        '100%',
+    boxSizing:     'border-box' as const,
+    zIndex:        90,
+    transition:    'width 0.28s cubic-bezier(0.4, 0, 0.2, 1)',
+    overflow:      'hidden',
+    flexShrink:    0,
   },
 
   toggleBtn: {
-    position:     'absolute' as const,
-    top:          18,
-    right:        -22,
-    width:        22,
-    height:       32,
-    borderRadius: '0 8px 8px 0',
-    background:   '#0f1830',
-    border:       `1px solid rgba(58,95,184,0.35)`,
-    borderLeft:   'none',
-    boxShadow:    '3px 0 12px rgba(0,0,0,0.4)',
-    display:      'flex',
-    alignItems:   'center',
+    position:       'absolute' as const,
+    top:            18,
+    right:          -22,
+    width:          22,
+    height:         32,
+    borderRadius:   '0 8px 8px 0',
+    background:     '#0f1830',
+    border:         `1px solid rgba(58,95,184,0.35)`,
+    borderLeft:     'none',
+    boxShadow:      '3px 0 12px rgba(0,0,0,0.4)',
+    display:        'flex',
+    alignItems:     'center',
     justifyContent: 'center',
-    cursor:       'pointer',
-    zIndex:       100,
-    padding:      0,
-    gap:          2,
+    cursor:         'pointer',
+    zIndex:         100,
+    padding:        0,
+    gap:            2,
   },
 
   toggleBtnPanel: {
-    display:     'block' as const,
-    width:       3,
-    height:      18,
+    display:      'block' as const,
+    width:        3,
+    height:       18,
     borderRadius: 2,
-    background:  'rgba(58,95,184,0.5)',
-    flexShrink:  0,
+    background:   'rgba(58,95,184,0.5)',
+    flexShrink:   0,
   } as React.CSSProperties,
 
   logoRow: {
-    display:       'flex',
-    alignItems:    'center',
-    gap:           10,
-    padding:       '4px 16px 18px',
-    borderBottom:  `0.5px solid ${T.border}`,
-    marginBottom:  10,
-    flexShrink:    0,
+    display:      'flex',
+    alignItems:   'center',
+    gap:          10,
+    padding:      '4px 16px 18px',
+    borderBottom: `0.5px solid ${T.border}`,
+    marginBottom: 10,
+    flexShrink:   0,
   } as React.CSSProperties,
 
   logoMark: {
@@ -419,11 +488,11 @@ const css = {
   } as React.CSSProperties,
 
   navArea: {
-    flex:           1,
-    display:        'flex',
-    flexDirection:  'column' as const,
-    padding:        '0 10px',
-    overflowY:      'auto' as const,
+    flex:          1,
+    display:       'flex',
+    flexDirection: 'column' as const,
+    padding:       '0 10px',
+    overflowY:     'auto' as const,
   },
 
   sectionLabel: {
@@ -492,16 +561,20 @@ const css = {
     flexShrink:    0,
   } as React.CSSProperties,
 
+  sidebarBottom: {
+    marginTop:  'auto',
+    borderTop:  `0.5px solid ${T.border}`,
+    flexShrink: 0,
+  } as React.CSSProperties,
+
   sidebarFooter: {
     padding:        '12px 14px',
-    borderTop:      `0.5px solid ${T.border}`,
     display:        'flex',
     alignItems:     'center',
     gap:            10,
     textDecoration: 'none',
     overflow:       'hidden',
-    flexShrink:     0,
-    marginTop:      'auto',
+    borderBottom:   `0.5px solid ${T.border}`,
   } as React.CSSProperties,
 
   avatarWrap: {
@@ -525,20 +598,34 @@ const css = {
   } as React.CSSProperties,
 
   crown: {
-    position:  'absolute' as const,
-    top:       -7,
-    right:     -5,
-    fontSize:  10,
+    position: 'absolute' as const,
+    top:      -7,
+    right:    -5,
+    fontSize: 10,
   },
 
-  // ✅ flex:1 + minWidth:0 — se expande solo cuando el sidebar se colapsa
+  btnLogout: {
+    width:       '100%',
+    display:     'flex',
+    alignItems:  'center',
+    gap:         10,
+    padding:     '10px 14px',
+    background:  'transparent',
+    border:      'none',
+    borderRadius: 0,
+    cursor:      'pointer',
+    transition:  'background 0.15s',
+    fontFamily:  'inherit',
+    overflow:    'hidden',
+  } as React.CSSProperties,
+
   rightArea: {
-    flex:           1,
-    minWidth:       0,
-    display:        'flex',
-    flexDirection:  'column' as const,
-    height:         '100vh',
-    overflow:       'hidden',
+    flex:          1,
+    minWidth:      0,
+    display:       'flex',
+    flexDirection: 'column' as const,
+    height:        '100vh',
+    overflow:      'hidden',
   },
 
   topbar: {
@@ -547,8 +634,8 @@ const css = {
     borderBottom: `0.5px solid ${T.border}`,
     display:      'flex',
     alignItems:   'center',
-    padding:      '0 24px',
-    gap:          12,
+    padding:      '0 16px',
+    gap:          10,
     zIndex:       80,
     flexShrink:   0,
   },
@@ -559,6 +646,8 @@ const css = {
     gap:        6,
     fontSize:   12.5,
     flex:       1,
+    minWidth:   0,
+    overflow:   'hidden',
   } as React.CSSProperties,
 
   topbarActions: {
@@ -576,11 +665,12 @@ const css = {
     padding:       '4px 10px',
     borderRadius:  20,
     letterSpacing: '0.02em',
+    whiteSpace:    'nowrap' as const,
   } as React.CSSProperties,
 
   hamburger: {
     flexDirection: 'column' as const,
-    gap:           4,
+    gap:           5,
     background:    'transparent',
     border:        'none',
     cursor:        'pointer',
@@ -591,13 +681,12 @@ const css = {
 
   hamburgerLine: {
     display:      'block' as const,
-    width:        18,
+    width:        20,
     height:       2,
     borderRadius: 2,
     background:   T.textMuted,
   },
 
-  // ✅ width:100% + boxSizing eliminan el espacio en blanco de las páginas hijas
   main: {
     flex:       1,
     background: T.bg,
@@ -609,15 +698,15 @@ const css = {
   },
 
   footerGlobal: {
-    borderTop:   `0.5px solid ${T.border}`,
-    background:  T.surface,
-    padding:     '14px 28px',
-    display:     'flex',
+    borderTop:      `0.5px solid ${T.border}`,
+    background:     T.surface,
+    padding:        '12px 20px',
+    display:        'flex',
     justifyContent: 'space-between',
-    alignItems:  'center',
-    flexWrap:    'wrap' as const,
-    gap:         10,
-    flexShrink:  0,
+    alignItems:     'center',
+    flexWrap:       'wrap' as const,
+    gap:            8,
+    flexShrink:     0,
   },
 
   footerLink: {
@@ -687,6 +776,15 @@ function IconUsers() {
     <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="9" cy="7" r="3" /><path d="M3 20c0-3.314 2.686-6 6-6s6 2.686 6 6" />
       <circle cx="17" cy="7" r="3" /><path d="M15 20c0-3 1.5-5.5 5-6" />
+    </svg>
+  )
+}
+function IconLogout() {
+  return (
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+      <polyline points="16 17 21 12 16 7" />
+      <line x1="21" y1="12" x2="9" y2="12" />
     </svg>
   )
 }

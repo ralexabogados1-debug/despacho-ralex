@@ -80,6 +80,21 @@ export default async function DashboardPage() {
 
   return (
     <div style={css.content}>
+      {/* Media queries para responsive (columnas ocultas + tabla en mobile) */}
+      <style>{`
+        @media (max-width: 640px) {
+          .dash-col-ocultar { display: none !important; }
+          .dash-tabla-fila {
+            grid-template-columns: 1fr 90px !important;
+          }
+        }
+        @media (min-width: 641px) and (max-width: 860px) {
+          .dash-col-fecha { display: none !important; }
+          .dash-tabla-fila {
+            grid-template-columns: 1.4fr 1fr 1fr 90px !important;
+          }
+        }
+      `}</style>
 
       {/* Saludo + fecha */}
       <div>
@@ -149,33 +164,34 @@ export default async function DashboardPage() {
 
           <div style={css.tabla}>
             {/* Cabecera */}
-            <div style={{ ...css.tablaFila, ...css.tablaCabecera }}>
+            <div className="dash-tabla-fila" style={{ ...css.tablaFila, ...css.tablaCabecera }}>
               <span>Expediente</span>
-              <span style={css.colOcultar}>Actor</span>
-              <span style={css.colOcultar}>Demandado</span>
+              <span className="dash-col-ocultar">Actor</span>
+              <span className="dash-col-ocultar">Demandado</span>
               <span>Materia</span>
-              <span style={css.colOcultar}>Fecha</span>
+              <span className="dash-col-ocultar dash-col-fecha">Fecha</span>
             </div>
 
             {recientes.map((exp: any) => (
               <a
                 key={exp.id}
                 href={`/sistema/expedientes/${exp.materias?.nombre?.toLowerCase() ?? 'civil'}/${exp.id}`}
+                className="dash-tabla-fila"
                 style={{ ...css.tablaFila, ...css.tablaFilaLink }}
               >
-                <span style={{ color: T.textPrimary, fontWeight: 500, fontSize: 13 }}>
+                <span style={{ color: T.textPrimary, fontWeight: 500, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {exp.numero_expediente}
                 </span>
-                <span style={{ ...css.colOcultar, fontSize: 13, color: T.textMuted }}>
+                <span className="dash-col-ocultar" style={{ fontSize: 13, color: T.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {exp.actor ?? '—'}
                 </span>
-                <span style={{ ...css.colOcultar, fontSize: 13, color: T.textMuted }}>
+                <span className="dash-col-ocultar" style={{ fontSize: 13, color: T.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {exp.demandado ?? '—'}
                 </span>
                 <span>
                   <MateriaChip nombre={exp.materias?.nombre ?? '—'} />
                 </span>
-                <span style={{ ...css.colOcultar, fontSize: 12, color: T.textFaint }}>
+                <span className="dash-col-ocultar dash-col-fecha" style={{ fontSize: 12, color: T.textFaint, whiteSpace: 'nowrap' }}>
                   {new Date(exp.created_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}
                 </span>
               </a>
@@ -206,16 +222,16 @@ function StatCard({
       <div style={{ ...css.statIcon, background: colorAlpha, color }}>
         {icon}
       </div>
-      <div>
-        <div style={{ fontSize: 11, color: T.textFaint, fontWeight: 500, letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: 4 }}>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 11, color: T.textFaint, fontWeight: 500, letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           {label}
         </div>
-        <div style={{ fontSize: 32, fontWeight: 700, color: T.textPrimary, letterSpacing: '-1px', lineHeight: 1 }}>
+        <div style={{ fontSize: 'clamp(22px, 4vw, 32px)', fontWeight: 700, color: T.textPrimary, letterSpacing: '-1px', lineHeight: 1 }}>
           {value}
         </div>
       </div>
       {href && (
-        <div style={{ marginLeft: 'auto', color: T.textFaint, fontSize: 18, lineHeight: 1 }}>→</div>
+        <div style={{ marginLeft: 'auto', color: T.textFaint, fontSize: 18, lineHeight: 1, flexShrink: 0 }}>→</div>
       )}
     </div>
   )
@@ -236,7 +252,7 @@ function MateriaChip({ nombre }: { nombre: string }) {
   return (
     <span style={{
       fontSize: 11, fontWeight: 600, padding: '3px 9px', borderRadius: 20,
-      background: style.bg, color: style.color,
+      background: style.bg, color: style.color, whiteSpace: 'nowrap',
     }}>
       {nombre}
     </span>
@@ -244,7 +260,7 @@ function MateriaChip({ nombre }: { nombre: string }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 🎨 ESTILOS
+// 🎨 ESTILOS — SIN maxWidth ni margin
 // ─────────────────────────────────────────────────────────────────────────────
 const css = {
   content: {
@@ -252,7 +268,8 @@ const css = {
     display: 'flex',
     flexDirection: 'column' as const,
     gap: 28,
-    maxWidth: 1200,
+    width: '100%',
+    boxSizing: 'border-box' as const,
   },
 
   heading: {
@@ -301,7 +318,7 @@ const css = {
 
   statsGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
     gap: 14,
   } as React.CSSProperties,
 
@@ -309,17 +326,18 @@ const css = {
     background: T.surface,
     border: `0.5px solid ${T.border}`,
     borderRadius: 12,
-    padding: '18px 20px',
+    padding: '16px 18px',
     display: 'flex',
     alignItems: 'center',
-    gap: 16,
+    gap: 14,
     transition: 'border-color 0.15s, background 0.15s',
     cursor: 'pointer',
+    minWidth: 0,
   } as React.CSSProperties,
 
   statIcon: {
-    width: 40,
-    height: 40,
+    width: 38,
+    height: 38,
     borderRadius: 10,
     display: 'flex',
     alignItems: 'center',
@@ -332,6 +350,8 @@ const css = {
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 12,
+    gap: 12,
+    flexWrap: 'wrap' as const,
   } as React.CSSProperties,
 
   sectionTitle: {
@@ -347,6 +367,7 @@ const css = {
     color: T.textAccent,
     textDecoration: 'none',
     fontWeight: 500,
+    whiteSpace: 'nowrap' as const,
   } as React.CSSProperties,
 
   tabla: {
@@ -356,6 +377,7 @@ const css = {
     overflow: 'hidden',
   } as React.CSSProperties,
 
+  // Columnas base (desktop). Se sobreescriben por media query via className.
   tablaFila: {
     display: 'grid',
     gridTemplateColumns: '1.5fr 1fr 1fr 100px 110px',
@@ -378,11 +400,6 @@ const css = {
     textDecoration: 'none',
     color: 'inherit',
     transition: 'background 0.12s',
-  } as React.CSSProperties,
-
-  colOcultar: {
-    // En producción: @media (max-width: 640px) { display: none }
-    // Con Tailwind: className="hidden sm:block"
   } as React.CSSProperties,
 }
 

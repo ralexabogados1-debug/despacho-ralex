@@ -120,8 +120,26 @@ export default function TableroTareasCliente({
 
   return (
     <>
+      {/* Responsive: header apilado, filtros con scroll horizontal, kanban vertical en mobile */}
+      <style>{`
+        @media (max-width: 520px) {
+          .tar-page-header { flex-direction: column; align-items: stretch !important; gap: 14px !important; }
+          .tar-btn-primario { width: 100%; justify-content: center; padding: 12px 18px !important; }
+        }
+        @media (max-width: 480px) {
+          .tar-modal { padding: 20px !important; }
+        }
+        @media (max-width: 640px) {
+          .tar-search { width: 100% !important; }
+          .tar-filtros-row { flex-direction: column; align-items: stretch !important; }
+          .tar-tabs { overflow-x: auto; flex-wrap: nowrap !important; padding-bottom: 4px; }
+          .tar-tabs::-webkit-scrollbar { height: 4px; }
+          .tar-kanban { grid-template-columns: 1fr !important; }
+        }
+      `}</style>
+
       {/* ── ENCABEZADO ── */}
-      <div style={css.pageHeader}>
+      <div className="tar-page-header" style={css.pageHeader}>
         <div>
           <h1 style={css.titulo}>Tareas</h1>
           <p style={css.subtitulo}>
@@ -129,7 +147,7 @@ export default function TableroTareasCliente({
             Gestiona pendientes relacionados con expedientes
           </p>
         </div>
-        <button onClick={() => setAbierto(true)} style={css.btnPrimario}>
+        <button onClick={() => setAbierto(true)} className="tar-btn-primario" style={css.btnPrimario}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M12 5v14M5 12h14"/>
           </svg>
@@ -138,8 +156,8 @@ export default function TableroTareasCliente({
       </div>
 
       {/* ── FILTROS ── */}
-      <div style={css.filtrosRow}>
-        <div style={css.searchWrap}>
+      <div className="tar-filtros-row" style={css.filtrosRow}>
+        <div className="tar-search" style={css.searchWrap}>
           <svg style={css.searchIcon} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
           </svg>
@@ -151,7 +169,7 @@ export default function TableroTareasCliente({
             style={css.searchInput}
           />
         </div>
-        <div style={css.tabs}>
+        <div className="tar-tabs" style={css.tabs}>
           {([
             ['todos',       `Todos (${cnt.todos})`],
             ['mis_tareas',  `Mis tareas (${cnt.mis_tareas})`],
@@ -166,7 +184,7 @@ export default function TableroTareasCliente({
       </div>
 
       {/* ── TABLERO KANBAN ── */}
-      <div style={css.kanban}>
+      <div className="tar-kanban" style={css.kanban}>
 
         {/* COLUMNA: POR HACER */}
         <Columna
@@ -244,7 +262,7 @@ export default function TableroTareasCliente({
       {/* ── MODAL NUEVA TAREA ── */}
       {abierto && (
         <div style={css.overlay} onClick={() => setAbierto(false)}>
-          <div style={css.modal} onClick={(e) => e.stopPropagation()}>
+          <div className="tar-modal" style={css.modal} onClick={(e) => e.stopPropagation()}>
 
             <div style={css.modalHeader}>
               <div>
@@ -357,7 +375,7 @@ function TarjetaTarea({ tarea: t, renderFecha, onCheck, checked, completada, ext
           type="checkbox"
           checked={checked}
           onChange={onCheck}
-          style={{ marginTop: 3, cursor: 'pointer', accentColor: T.accent }}
+          style={{ marginTop: 3, cursor: 'pointer', accentColor: T.accent, flexShrink: 0 }}
         />
         <span style={{
           color: completada ? T.textMuted : T.textPrimary,
@@ -365,6 +383,8 @@ function TarjetaTarea({ tarea: t, renderFecha, onCheck, checked, completada, ext
           fontWeight: 500,
           textDecoration: completada ? 'line-through' : 'none',
           lineHeight: 1.4,
+          minWidth: 0,
+          wordBreak: 'break-word',
         }}>
           {t.descripcion}
         </span>
@@ -497,13 +517,14 @@ const css = {
     pointerEvents: 'none' as const,
   },
   searchInput: {
+    width: '100%',
     padding: '9px 12px 9px 33px',
     background: T.surfaceLow,
     border: `0.5px solid ${T.border}`,
     borderRadius: 8,
     color: T.textPrimary,
     fontSize: 13,
-    width: 260,
+    boxSizing: 'border-box' as const,
     outline: 'none',
   } as React.CSSProperties,
   tabs: {
@@ -522,6 +543,7 @@ const css = {
     fontWeight: activo ? 600 : 400,
     transition: 'all 0.15s',
     whiteSpace: 'nowrap' as const,
+    flexShrink: 0,
   }),
   kanban: {
     display: 'grid',
@@ -539,6 +561,7 @@ const css = {
     justifyContent: 'center',
     padding: '24px 16px',
     zIndex: 200,
+    overflowY: 'auto' as const,
   },
   modal: {
     background: T.surface,

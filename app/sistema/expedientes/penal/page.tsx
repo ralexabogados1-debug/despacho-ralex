@@ -84,14 +84,13 @@ export default async function CausasPenalesPage() {
     }
   })
 
+  // ✅ ELIMINADO el div con maxWidth — ahora el componente ocupa todo el ancho
   return (
-    <div style={{ padding: 'clamp(20px, 4vw, 40px) clamp(16px, 4vw, 40px)', maxWidth: 1200 }}>
-      <ClienteCausasPenales
-        jueces={jueces ?? []}
-        ministerios={ministerios ?? []}
-        abogados={abogados ?? []}
-        causas={causas}
-      />
-    </div>
+    <ClienteCausasPenales
+      jueces={jueces ?? []}
+      ministerios={ministerios ?? []}
+      abogados={abogados ?? []}
+      causas={causas}
+    />
   )
 }

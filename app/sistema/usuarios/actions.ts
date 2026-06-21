@@ -1,60 +1,39 @@
-// app/usuarios/actions.ts
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 
-// 1. Cambiar el estado del switch (Activo / Inactivo)
-export async function cambiarEstadoUsuario(id: number, estadoActual: boolean) {
+/**
+ * Activa o suspende la cuenta de un usuario.
+ * Solo debe ser invocado desde la página de usuarios, que ya
+ * está protegida para administradores en el Server Component.
+ */
+export async function cambiarEstadoUsuario(usuarioId: number, nuevoEstado: boolean) {
   const supabase = await createClient()
 
-  // Seguridad: Verificar sesión y rol de Administrador
+  // Verificación de seguridad adicional: confirmar que quien llama es admin
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { error: 'No autorizado.' }
-  
-  const { data: adminCheck } = await supabase.from('usuarios').select('rol').eq('auth_id', user.id).single()
-  if (adminCheck?.rol !== 'Administrador') return { error: 'Acceso exclusivo para administradores.' }
+  if (!user) return { error: 'No autenticado' }
+
+  const { data: miPerfil } = await supabase
+    .from('usuarios')
+    .select('rol')
+    .eq('auth_id', user.id)
+    .single()
+
+  if (!miPerfil || miPerfil.rol?.toLowerCase() !== 'admin') {
+    return { error: 'No tienes permisos para realizar esta acción' }
+  }
 
   const { error } = await supabase
     .from('usuarios')
-    .update({ activo: !estadoActual })
-    .eq('id', id)
+    .update({ activo: nuevoEstado })
+    .eq('id', usuarioId)
 
-  if (error) return { error: error.message }
+  if (error) {
+    return { error: error.message }
+  }
 
-  // 💡 Corrección: Revalidamos ambas rutas para que el cambio impacte en todo el despacho en tiempo real
-  revalidatePath('/usuarios')
-  revalidatePath(`/perfil/${id}`) 
-  
-  return { success: true }
-}
-
-// 2. Crear un nuevo usuario administrativo o colaborador
-export async function crearUsuario(formData: FormData) {
-  const supabase = await createClient()
-
-  // 💡 Corrección de Seguridad: Añadimos validación para que un colaborador no pueda crear cuentas clonadas
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { error: 'No autorizado.' }
-  
-  const { data: adminCheck } = await supabase.from('usuarios').select('rol').eq('auth_id', user.id).single()
-  if (adminCheck?.rol !== 'Administrador') return { error: 'Acceso denegado. Solo administradores.' }
-
-  const nombre = formData.get('nombre') as string
-  const email = formData.get('email') as string
-  const rol = formData.get('rol') as string // 'Administrador' | 'Colaborador'
-
-  const { error } = await supabase
-    .from('usuarios')
-    .insert({
-      nombre_completo: nombre,
-      email: email,
-      rol: rol,
-      activo: true
-    })
-
-  if (error) return { error: `Error al crear: ${error.message}` }
-
-  revalidatePath('/usuarios')
+  revalidatePath('/sistema/usuarios')
   return { success: true }
 }

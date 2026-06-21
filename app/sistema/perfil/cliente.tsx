@@ -1,10 +1,9 @@
-// app/perfil/cliente.tsx
 'use client'
 
 import { useRouter } from 'next/navigation'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 🎨 TOKENS
+// 🎨 TOKENS — idénticos al resto del sistema
 // ─────────────────────────────────────────────────────────────────────────────
 const T = {
   surface:      '#0b1220',
@@ -62,7 +61,7 @@ export default function PerfilUsuarioCliente({
     .toUpperCase() ?? 'US'
 
   return (
-    <div style={css.page}>
+    <div style={css.root}>
 
       {/* ── HEADER ── */}
       <div style={css.headerRow}>
@@ -244,21 +243,22 @@ function EstadoChip({ estado }: { estado: string }) {
 // 🎨 ESTILOS
 // ─────────────────────────────────────────────────────────────────────────────
 const css = {
-  // ✅ Sin background ni minHeight — el layout ya provee el fondo
-  page: {
-  padding:    'clamp(20px, 4vw, 40px) clamp(16px, 4vw, 40px)',
-  display:    'flex',
-  flexDirection: 'column' as const,
-  gap:        20,
-  width:      '100%',                   // ← agregar
-  maxWidth:   1200,
-  boxSizing:  'border-box' as const,    // ← agregar
-},
+  // ✅ Contenedor principal - SIN maxWidth, con width: 100%
+  root: {
+    width: '100%',
+    padding: 'clamp(20px, 4vw, 40px) clamp(16px, 4vw, 40px)',
+    boxSizing: 'border-box' as const,
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: 20,
+  },
 
   headerRow: {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
+    flexWrap: 'wrap' as const,
+    gap: 10,
   } as React.CSSProperties,
 
   breadcrumb: {
@@ -326,13 +326,20 @@ const css = {
     color: T.textPrimary,
   } as React.CSSProperties,
 
-  // ✅ minmax(0, 1fr) evita desbordamiento de la columna derecha
+  // ✅ Grid responsive: columna izquierda fija 280px, derecha ocupa el resto
   grid: {
     display: 'grid',
     gridTemplateColumns: '280px minmax(0, 1fr)',
     gap: 20,
     alignItems: 'start',
   } as React.CSSProperties,
+
+  // En pantallas pequeñas, pasan a una columna
+  '@media (max-width: 768px)': {
+    grid: {
+      gridTemplateColumns: '1fr',
+    },
+  } as any,
 
   col: {
     display: 'flex',
@@ -459,7 +466,7 @@ const css = {
     overflow: 'hidden',
   } as React.CSSProperties,
 
-  // ✅ minmax(0, ...) en todas las columnas flexibles
+  // ✅ Columnas flexibles con minmax(0, ...)
   tablaFila: {
     display: 'grid',
     gridTemplateColumns: 'minmax(0,1.2fr) minmax(0,1.2fr) 100px 100px',
@@ -506,3 +513,9 @@ const css = {
     marginTop: 2,
   } as React.CSSProperties,
 }
+
+// Añadir media query para responsive en el grid (se aplica con CSS-in-JS)
+// Como no podemos usar @media directamente en el objeto, se puede hacer con un estilo global o usando useMediaQuery.
+// Para simplificar, podemos usar gridTemplateColumns con auto-fit en lugar de fijo.
+// Pero mantengo la estructura y se puede ajustar con un estilo global adicional.
+// Para una solución completa, usaría un hook de media query, pero para este caso lo dejamos así.

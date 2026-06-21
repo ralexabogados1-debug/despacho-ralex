@@ -1,4 +1,3 @@
-// app/expedientes/penal/cliente.tsx
 'use client'
 
 import { useState } from 'react'
@@ -86,9 +85,27 @@ export default function ClienteCausasPenales({
   }
 
   return (
-    <>
+    <div style={css.root}>
+      {/* Responsive: header apilado en mobile, tabla/cards alternados */}
+      <style>{`
+        @media (max-width: 520px) {
+          .pen-page-header { flex-direction: column; align-items: stretch !important; gap: 14px !important; }
+          .pen-btn-primario { width: 100%; justify-content: center; padding: 12px 18px !important; }
+        }
+        @media (max-width: 480px) {
+          .pen-modal { padding: 20px !important; }
+        }
+        @media (max-width: 720px) {
+          .pen-tabla-desktop { display: none !important; }
+          .pen-tabla-mobile { display: flex !important; }
+        }
+        @media (min-width: 721px) {
+          .pen-tabla-mobile { display: none !important; }
+        }
+      `}</style>
+
       {/* ── ENCABEZADO ── */}
-      <div style={css.pageHeader}>
+      <div className="pen-page-header" style={css.pageHeader}>
         <div>
           <h1 style={css.titulo}>Causas Penales</h1>
           <p style={css.subtitulo}>
@@ -98,7 +115,7 @@ export default function ClienteCausasPenales({
             <strong style={{ color: T.textPrimary }}>{cnt.todos}</strong> registradas
           </p>
         </div>
-        <button onClick={() => setAbierto(true)} style={css.btnPrimario}>
+        <button onClick={() => setAbierto(true)} className="pen-btn-primario" style={css.btnPrimario}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M12 5v14M5 12h14"/>
           </svg>
@@ -144,7 +161,7 @@ export default function ClienteCausasPenales({
         </div>
       </div>
 
-      {/* ── TABLA ── */}
+      {/* ── TABLA (desktop) + CARDS (mobile) ── */}
       <div style={css.tabla}>
         {causasFiltradas.length === 0 ? (
           <div style={css.vacio}>
@@ -154,79 +171,119 @@ export default function ClienteCausasPenales({
             <span>No se encontraron causas penales con los criterios seleccionados</span>
           </div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={css.table}>
-              <thead>
-                <tr>
-                  {['No. Causa', 'Cliente / Rol', 'Delito', 'Etapa', 'Juez / MP', 'Estado', 'Próx. Término'].map(h => (
-                    <th key={h} style={css.th}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {causasFiltradas.map((c) => {
-                  const penal    = c.expedientes_penales?.[0] ?? {}
-                  const proxTerm = obtenerProximoTermino(c.tareas)
-                  const esHoy    = proxTerm === hoy
-                  const vencido  = proxTerm && proxTerm < hoy
-                  const activo   = c.estado === 'Activo'
+          <>
+            {/* Vista tabla — pantallas anchas */}
+            <div className="pen-tabla-desktop" style={{ overflowX: 'auto' }}>
+              <table style={css.table}>
+                <thead>
+                  <tr>
+                    {['No. Causa', 'Cliente / Rol', 'Delito', 'Etapa', 'Juez / MP', 'Estado', 'Próx. Término'].map(h => (
+                      <th key={h} style={css.th}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {causasFiltradas.map((c) => {
+                    const penal    = c.expedientes_penales?.[0] ?? {}
+                    const proxTerm = obtenerProximoTermino(c.tareas)
+                    const esHoy    = proxTerm === hoy
+                    const vencido  = proxTerm && proxTerm < hoy
+                    const activo   = c.estado === 'Activo'
 
-                  return (
-                    <tr key={c.id} style={css.tr}>
-                      <td style={css.td}>
-                        <span style={{ fontWeight: 600, color: T.textPrimary, fontSize: 13 }}>
-                          {c.numero_expediente}
-                        </span>
-                        <div style={css.sub}>Carp: {penal.numero_carpeta_investigacion ?? '—'}</div>
-                      </td>
-                      <td style={css.td}>
-                        <span style={{ color: T.textPrimary, fontSize: 13 }}>
-                          {c.clientes?.nombre_completo ?? '—'}
-                        </span>
-                        <div style={css.sub}>{c.caracter_cliente} · {penal.rol_abogado}</div>
-                      </td>
-                      <td style={{ ...css.td, color: T.textMuted, fontSize: 13 }}>{penal.delito ?? '—'}</td>
-                      <td style={{ ...css.td, color: T.textMuted, fontSize: 13 }}>{penal.estadio_procesal ?? '—'}</td>
-                      <td style={css.td}>
-                        <span style={{ color: T.textMuted, fontSize: 13 }}>{c.jueces?.nombre ?? '—'}</span>
-                        <div style={css.sub}>{penal.ministerios_publicos?.nombre_agencia ?? 'Sin MP'}</div>
-                      </td>
-                      <td style={css.td}>
-                        <span style={{
-                          ...css.pill,
-                          background: activo ? T.greenAlpha : 'rgba(251,191,36,0.08)',
-                          color:      activo ? T.green      : '#fbbf24',
-                          border:     `0.5px solid ${activo ? 'rgba(74,222,128,0.18)' : 'rgba(251,191,36,0.20)'}`,
-                        }}>
-                          {c.estado}
-                        </span>
-                      </td>
-                      <td style={css.td}>
-                        {proxTerm ? (
-                          <span style={{
-                            fontWeight: esHoy || vencido ? 600 : 400,
-                            color: vencido ? T.red : esHoy ? '#fbbf24' : T.textMuted,
-                            fontSize: 13,
-                          }}>
-                            {vencido ? '⚠ ' : esHoy ? '● ' : ''}{proxTerm}
+                    return (
+                      <tr key={c.id} style={css.tr}>
+                        <td style={css.td}>
+                          <span style={{ fontWeight: 600, color: T.textPrimary, fontSize: 13 }}>
+                            {c.numero_expediente}
                           </span>
-                        ) : (
-                          <span style={{ color: T.textFaint, fontSize: 13 }}>—</span>
+                          <div style={css.sub}>Carp: {penal.numero_carpeta_investigacion ?? '—'}</div>
+                        </td>
+                        <td style={css.td}>
+                          <span style={{ color: T.textPrimary, fontSize: 13 }}>
+                            {c.clientes?.nombre_completo ?? '—'}
+                          </span>
+                          <div style={css.sub}>{c.caracter_cliente} · {penal.rol_abogado}</div>
+                        </td>
+                        <td style={{ ...css.td, color: T.textMuted, fontSize: 13 }}>{penal.delito ?? '—'}</td>
+                        <td style={{ ...css.td, color: T.textMuted, fontSize: 13 }}>{penal.estadio_procesal ?? '—'}</td>
+                        <td style={css.td}>
+                          <span style={{ color: T.textMuted, fontSize: 13 }}>{c.jueces?.nombre ?? '—'}</span>
+                          <div style={css.sub}>{penal.ministerios_publicos?.nombre_agencia ?? 'Sin MP'}</div>
+                        </td>
+                        <td style={css.td}>
+                          <span style={{
+                            ...css.pill,
+                            background: activo ? T.greenAlpha : 'rgba(251,191,36,0.08)',
+                            color:      activo ? T.green      : '#fbbf24',
+                            border:     `0.5px solid ${activo ? 'rgba(74,222,128,0.18)' : 'rgba(251,191,36,0.20)'}`,
+                          }}>
+                            {c.estado}
+                          </span>
+                        </td>
+                        <td style={css.td}>
+                          {proxTerm ? (
+                            <span style={{
+                              fontWeight: esHoy || vencido ? 600 : 400,
+                              color: vencido ? T.red : esHoy ? '#fbbf24' : T.textMuted,
+                              fontSize: 13,
+                            }}>
+                              {vencido ? '⚠ ' : esHoy ? '● ' : ''}{proxTerm}
+                            </span>
+                          ) : (
+                            <span style={{ color: T.textFaint, fontSize: 13 }}>—</span>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Vista estilo lista de chats — mobile */}
+            <div className="pen-tabla-mobile" style={css.cardsList}>
+              {causasFiltradas.map((c) => {
+                const penal    = c.expedientes_penales?.[0] ?? {}
+                const proxTerm = obtenerProximoTermino(c.tareas)
+                const esHoy    = proxTerm === hoy
+                const vencido  = proxTerm && proxTerm < hoy
+                const activo   = c.estado === 'Activo'
+
+                return (
+                  <a key={c.id} href={`/sistema/expedientes/penal/detalle?id=${c.id}`} style={css.rowLink}>
+                    <div style={css.rowAvatar}>
+                      <i className="ti ti-gavel" style={{ fontSize: 18, color: T.red }} aria-hidden="true" />
+                    </div>
+                    <div style={css.rowBody}>
+                      <div style={css.rowTop}>
+                        <span style={css.rowTitulo}>{c.numero_expediente}</span>
+                        {proxTerm && (
+                          <span style={{
+                            ...css.rowFecha,
+                            color: vencido ? T.red : esHoy ? '#fbbf24' : T.textFaint,
+                          }}>
+                            {esHoy ? 'Hoy' : proxTerm}
+                          </span>
                         )}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+                      </div>
+                      <div style={css.rowSub}>
+                        <span style={{ ...css.rowDot, background: activo ? T.green : '#fbbf24' }} />
+                        {penal.delito || 'Sin delito especificado'}
+                      </div>
+                    </div>
+                    <i className="ti ti-chevron-right" style={{ fontSize: 18, color: T.textFaint, flexShrink: 0 }} aria-hidden="true" />
+                  </a>
+                )
+              })}
+            </div>
+          </>
         )}
       </div>
 
       {/* ── MODAL ── */}
       {abierto && (
         <div style={css.overlay} onClick={() => setAbierto(false)}>
-          <div style={css.modal} onClick={(e) => e.stopPropagation()}>
+          <div className="pen-modal" style={css.modal} onClick={(e) => e.stopPropagation()}>
 
             <div style={css.modalHeader}>
               <div>
@@ -355,7 +412,7 @@ export default function ClienteCausasPenales({
           </div>
         </div>
       )}
-    </>
+    </div>
   )
 }
 
@@ -393,6 +450,12 @@ function Campo({ label, children }: { label: string; children: React.ReactNode }
 // 🎨 ESTILOS
 // ─────────────────────────────────────────────────────────────────────────────
 const css = {
+  root: {
+    width: '100%',
+    padding: 'clamp(20px, 5vw, 40px) clamp(20px, 5vw, 40px)',
+    boxSizing: 'border-box' as const,
+  },
+
   pageHeader: {
     display: 'flex',
     justifyContent: 'space-between',
@@ -419,7 +482,6 @@ const css = {
     gap: 6,
   } as React.CSSProperties,
 
-  // Rojo vino como dot de Penal (color distintivo del módulo)
   dot: {
     display: 'inline-block' as const,
     width: 6,
@@ -495,6 +557,8 @@ const css = {
     position: 'relative' as const,
     display: 'flex',
     alignItems: 'center',
+    flex: 1,
+    minWidth: 200,
   },
 
   searchIcon: {
@@ -505,13 +569,13 @@ const css = {
   },
 
   searchInput: {
+    width: '100%',
     padding: '9px 12px 9px 33px',
     background: '#0f1828',
     border: `0.5px solid ${T.border}`,
     borderRadius: 8,
     color: T.textPrimary,
     fontSize: 13,
-    width: 280,
     outline: 'none',
   } as React.CSSProperties,
 
@@ -521,7 +585,6 @@ const css = {
     flexWrap: 'wrap' as const,
   },
 
-  // Tabs de Penal usan rojo vino como color activo
   tab: (activo: boolean): React.CSSProperties => ({
     padding: '8px 14px',
     background: activo ? T.redAlpha : 'transparent',
@@ -555,7 +618,86 @@ const css = {
   table: {
     width: '100%',
     borderCollapse: 'collapse' as const,
+    minWidth: 700,
   },
+
+  // ── Vista de cards (mobile) ──
+  cardsList: {
+    display: 'none',
+    flexDirection: 'column' as const,
+    gap: 1,
+  } as React.CSSProperties,
+
+  // ── Fila estilo lista de chats (mobile) ──
+  rowLink: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 12,
+    padding: '12px 16px',
+    borderBottom: `0.5px solid ${T.border}`,
+    textDecoration: 'none',
+    color: 'inherit',
+    transition: 'background 0.12s',
+  } as React.CSSProperties,
+
+  rowAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: '50%',
+    background: T.redAlpha,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  } as React.CSSProperties,
+
+  rowBody: {
+    flex: 1,
+    minWidth: 0,
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: 3,
+  } as React.CSSProperties,
+
+  rowTop: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 8,
+  } as React.CSSProperties,
+
+  rowTitulo: {
+    fontSize: 14.5,
+    fontWeight: 600,
+    color: T.textPrimary,
+    whiteSpace: 'nowrap' as const,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  } as React.CSSProperties,
+
+  rowFecha: {
+    fontSize: 11.5,
+    flexShrink: 0,
+    whiteSpace: 'nowrap' as const,
+  } as React.CSSProperties,
+
+  rowSub: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    fontSize: 13,
+    color: T.textMuted,
+    whiteSpace: 'nowrap' as const,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  } as React.CSSProperties,
+
+  rowDot: {
+    width: 6,
+    height: 6,
+    borderRadius: '50%',
+    flexShrink: 0,
+  } as React.CSSProperties,
 
   th: {
     padding: '10px 16px',

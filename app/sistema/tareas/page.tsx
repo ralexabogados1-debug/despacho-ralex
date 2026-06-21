@@ -59,7 +59,7 @@ export default async function TareasPage() {
   }))
 
   return (
-    <div style={{ padding: 'clamp(20px, 4vw, 40px) clamp(16px, 4vw, 40px)', maxWidth: 1400 }}>
+    <div style={{ padding: 'clamp(20px, 5vw, 40px) clamp(20px, 5vw, 40px)', maxWidth: 1400 }}>
       <TableroTareasCliente
         tareasInit={tareas}
         expedientes={expedientes}

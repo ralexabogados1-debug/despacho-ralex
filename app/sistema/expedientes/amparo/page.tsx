@@ -1,4 +1,3 @@
-// app/expedientes/amparo/page.tsx
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import ClienteAmparos from './cliente'
@@ -44,8 +43,7 @@ export default async function AmparosPage() {
     .eq('materia_id', materiaAmparo?.id ?? -1)
     .order('created_at', { ascending: false })
 
-  // Normalizar antes de pasar al client component:
-  // evita referencias circulares en el payload serializado de Next.js
+  // Normalizar antes de pasar al client component
   const amparosNormalizados = (expedientesAmparo ?? []).map((exp: any) => ({
     id: exp.id,
     numero_expediente: exp.numero_expediente,
@@ -77,12 +75,10 @@ export default async function AmparosPage() {
   }))
 
   return (
-    <div style={{ padding: 'clamp(20px, 4vw, 40px) clamp(16px, 4vw, 40px)', maxWidth: 1200 }}>
-      <ClienteAmparos
-        juzgados={juzgadosDistrito ?? []}
-        abogados={abogados ?? []}
-        amparos={amparosNormalizados}
-      />
-    </div>
+    <ClienteAmparos
+      juzgados={juzgadosDistrito ?? []}
+      abogados={abogados ?? []}
+      amparos={amparosNormalizados}
+    />
   )
 }
