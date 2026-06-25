@@ -3,22 +3,25 @@
 import { useState } from 'react'
 import { crearCausaPenal } from './actions'
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 🎨 TOKENS — idénticos al dashboard (rojo vino para Penal)
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Tokens (rojo vino para Penal) ────────────────────────────────────────
+const ACCENT        = '#b3434f'
+const ACCENT_ALPHA  = 'rgba(179,67,79,0.10)'
+const ACCENT_BORDER = 'rgba(179,67,79,0.40)'
+
 const T = {
   surface:     '#0b1220',
-  border:      'rgba(255,255,255,0.06)',
-  accent:      '#3a5fb8',
-  accentAlpha: 'rgba(58,95,184,0.12)',
-  red:         '#b3434f',
-  redAlpha:    'rgba(179,67,79,0.10)',
+  surfaceLow:  '#0f1828',
+  border:      'rgba(255,255,255,0.05)',
+  gold:        '#d4af37',
+  goldAlpha:   'rgba(212,175,55,0.10)',
   green:       '#4ade80',
   greenAlpha:  'rgba(74,222,128,0.08)',
+  red:         '#b3434f',
+  redAlpha:    'rgba(179,67,79,0.10)',
+  amber:       '#fbbf24',
   textPrimary: 'rgba(255,255,255,0.85)',
   textMuted:   'rgba(255,255,255,0.40)',
   textFaint:   'rgba(255,255,255,0.22)',
-  textAccent:  '#8fa8e0',
 }
 
 type Juez    = { id: number; nombre: string }
@@ -33,23 +36,23 @@ export default function ClienteCausasPenales({
   abogados:    Abogado[]
   causas:      any[]
 }) {
-  const [abierto, setAbierto]     = useState(false)
-  const [busqueda, setBusqueda]   = useState('')
-  const [filtroTab, setFiltroTab] = useState<'todos' | 'activos' | 'termino' | 'concluidos'>('todos')
-  const [mensaje, setMensaje]     = useState<string | null>(null)
-  const [error, setError]         = useState<string | null>(null)
-
-  const obtenerProximoTermino = (tareas: any[]) => {
-    if (!tareas?.length) return null
-    return tareas
-      .filter((t) => !t.completada && t.fecha_vencimiento)
-      .sort((a, b) => new Date(a.fecha_vencimiento).getTime() - new Date(b.fecha_vencimiento).getTime())[0]
-      ?.fecha_vencimiento ?? null
-  }
+  const [abierto,    setAbierto]    = useState(false)
+  const [busqueda,   setBusqueda]   = useState('')
+  const [filtroTab,  setFiltroTab]  = useState<'todos' | 'activos' | 'termino' | 'concluidos'>('todos')
+  const [mensaje,    setMensaje]    = useState<string | null>(null)
+  const [error,      setError]      = useState<string | null>(null)
 
   const hoy = new Date().toISOString().split('T')[0]
 
-  const causasFiltradas = causas.filter((c) => {
+  const proxTermo = (tareas: any[]) =>
+    tareas
+      ?.filter(t => !t.completada && t.fecha_vencimiento)
+      .sort((a, b) => new Date(a.fecha_vencimiento).getTime() - new Date(b.fecha_vencimiento).getTime())
+      [0]?.fecha_vencimiento ?? null
+
+  const esActivo = (estado: string) => estado === 'Activo'
+
+  const filtrados = causas.filter(c => {
     const penal = c.expedientes_penales?.[0] ?? {}
     const term  = busqueda.toLowerCase()
     const ok =
@@ -58,26 +61,25 @@ export default function ClienteCausasPenales({
       penal.delito?.toLowerCase().includes(term) ||
       penal.numero_carpeta_investigacion?.toLowerCase().includes(term)
     if (!ok) return false
-    const prox = obtenerProximoTermino(c.tareas)
-    if (filtroTab === 'activos')    return c.estado === 'Activo'
+    const pt = proxTermo(c.tareas)
+    if (filtroTab === 'activos')    return esActivo(c.estado)
     if (filtroTab === 'concluidos') return c.estado === 'Concluido'
-    if (filtroTab === 'termino')    return c.estado === 'Activo' && prox !== null && prox >= hoy
+    if (filtroTab === 'termino')    return esActivo(c.estado) && pt !== null && pt >= hoy
     return true
   })
 
   const cnt = {
     todos:      causas.length,
-    activos:    causas.filter(c => c.estado === 'Activo').length,
+    activos:    causas.filter(c => esActivo(c.estado)).length,
     concluidos: causas.filter(c => c.estado === 'Concluido').length,
-    termino:    causas.filter(c => c.estado === 'Activo' && obtenerProximoTermino(c.tareas) !== null).length,
+    termino:    causas.filter(c => esActivo(c.estado) && proxTermo(c.tareas) !== null).length,
   }
 
   async function manejarSubmit(formData: FormData) {
     setError(null)
     const r = await crearCausaPenal(formData)
-    if (r?.error) {
-      setError(r.error)
-    } else {
+    if (r?.error) { setError(r.error) }
+    else {
       setMensaje('Causa penal creada correctamente.')
       setAbierto(false)
       setTimeout(() => setMensaje(null), 3000)
@@ -85,149 +87,140 @@ export default function ClienteCausasPenales({
   }
 
   return (
-    <div style={css.root}>
-      {/* Responsive: header apilado en mobile, tabla/cards alternados */}
+    <div style={s.root}>
       <style>{`
-        @media (max-width: 520px) {
-          .pen-page-header { flex-direction: column; align-items: stretch !important; gap: 14px !important; }
-          .pen-btn-primario { width: 100%; justify-content: center; padding: 12px 18px !important; }
+        .pen-header   { flex-direction: row; }
+        .pen-btn-new  { width: auto; }
+        .pen-filtros  { flex-direction: row; }
+        .pen-form-row { flex-wrap: wrap; }
+        .pen-col-form { flex: 1 1 220px; }
+        .pen-busqueda-wrapper { flex: 1 1 200px; width: auto; }
+
+        @media (max-width: 700px) {
+          .pen-header   { flex-direction: column !important; align-items: stretch !important; gap: 12px !important; }
+          .pen-btn-new  { width: 100% !important; justify-content: center !important; }
+          .pen-filtros  { flex-direction: column !important; align-items: stretch !important; gap: 12px !important; }
+          .pen-busqueda-wrapper { width: 100% !important; flex: none !important; }
+          .pen-tabs     { width: 100% !important; justify-content: flex-start !important; }
+          .pen-tabs button { flex: 1 1 auto; text-align: center; justify-content: center; }
+          .pen-col-form { flex: 1 1 100% !important; }
+          
+          .pen-desktop { display: none !important; }
+          .pen-mobile  { display: flex !important; }
         }
-        @media (max-width: 480px) {
-          .pen-modal { padding: 20px !important; }
-        }
-        @media (max-width: 720px) {
-          .pen-tabla-desktop { display: none !important; }
-          .pen-tabla-mobile { display: flex !important; }
-        }
-        @media (min-width: 721px) {
-          .pen-tabla-mobile { display: none !important; }
+
+        @media (min-width: 701px) {
+          .pen-mobile  { display: none !important; }
         }
       `}</style>
 
       {/* ── ENCABEZADO ── */}
-      <div className="pen-page-header" style={css.pageHeader}>
-        <div>
-          <h1 style={css.titulo}>Causas Penales</h1>
-          <p style={css.subtitulo}>
-            <span style={css.dot} />
-            Gestión de causas en materia penal
+      <div className="pen-header" style={s.header}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <h1 style={s.titulo}>Causas Penales</h1>
+          <p style={s.subtitulo}>
+            <span style={{ ...s.dot, background: ACCENT }} />
+            Gestión en materia penal
             &nbsp;·&nbsp;
             <strong style={{ color: T.textPrimary }}>{cnt.todos}</strong> registradas
           </p>
         </div>
-        <button onClick={() => setAbierto(true)} className="pen-btn-primario" style={css.btnPrimario}>
+        <button onClick={() => setAbierto(true)} className="pen-btn-new" style={{ ...s.btnPrimario, background: ACCENT }}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 5v14M5 12h14"/>
+            <path d="M12 5v14M5 12h14" />
           </svg>
-          Nueva causa
+          Nueva Causa
         </button>
       </div>
 
-      {/* Alerta éxito */}
-      {mensaje && (
-        <div style={css.alertaExito}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M20 6L9 17l-5-5"/>
-          </svg>
-          {mensaje}
-        </div>
-      )}
+      {mensaje && <Alerta tipo="ok">{mensaje}</Alerta>}
 
       {/* ── FILTROS ── */}
-      <div style={css.filtrosRow}>
-        <div style={css.searchWrap}>
-          <svg style={css.searchIcon} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+      <div className="pen-filtros" style={s.filtrosRow}>
+        <div className="pen-busqueda-wrapper" style={{ position: 'relative', display: 'flex', alignItems: 'center', minWidth: 0 }}>
+          <svg style={s.searchIcon} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
           </svg>
           <input
             type="text"
             placeholder="Buscar por causa, carpeta, cliente o delito..."
             value={busqueda}
-            onChange={(e) => setBusqueda(e.target.value)}
-            style={css.searchInput}
+            onChange={e => setBusqueda(e.target.value)}
+            style={s.searchInput}
           />
         </div>
-        <div style={css.tabs}>
+
+        <div className="pen-tabs" style={{ display: 'flex', gap: 4, flexWrap: 'wrap' as const, flexShrink: 0 }}>
           {([
             ['todos',      `Todos (${cnt.todos})`],
             ['activos',    `Activos (${cnt.activos})`],
             ['termino',    `Con término (${cnt.termino})`],
             ['concluidos', `Concluidos (${cnt.concluidos})`],
           ] as const).map(([key, label]) => (
-            <button key={key} onClick={() => setFiltroTab(key)} style={css.tab(filtroTab === key)}>
+            <button key={key} onClick={() => setFiltroTab(key)} style={s.tab(filtroTab === key)}>
               {label}
             </button>
           ))}
         </div>
       </div>
 
-      {/* ── TABLA (desktop) + CARDS (mobile) ── */}
-      <div style={css.tabla}>
-        {causasFiltradas.length === 0 ? (
-          <div style={css.vacio}>
+      {/* ── CONTENIDO ── */}
+      <div style={s.tabla}>
+        {filtrados.length === 0 ? (
+          <div style={s.vacio}>
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" style={{ color: T.textFaint }}>
               <path d="m14 13-8.5 8.5a2.121 2.121 0 1 1-3-3L11 10"/><path d="m16 16 6-6M8 8l6-6M9 7l8 8M21 11l-8-8"/>
             </svg>
-            <span>No se encontraron causas penales con los criterios seleccionados</span>
+            Sin causas penales con los criterios seleccionados
           </div>
         ) : (
           <>
-            {/* Vista tabla — pantallas anchas */}
-            <div className="pen-tabla-desktop" style={{ overflowX: 'auto' }}>
-              <table style={css.table}>
+            {/* Desktop */}
+            <div className="pen-desktop" style={{ overflowX: 'auto' }}>
+              <table style={s.table}>
                 <thead>
                   <tr>
-                    {['No. Causa', 'Cliente / Rol', 'Delito', 'Etapa', 'Juez / MP', 'Estado', 'Próx. Término'].map(h => (
-                      <th key={h} style={css.th}>{h}</th>
+                    {['No. Causa','Cliente / Rol','Delito','Etapa','Juez / MP','Estado','Próx. Término'].map(h => (
+                      <th key={h} style={s.th}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {causasFiltradas.map((c) => {
-                    const penal    = c.expedientes_penales?.[0] ?? {}
-                    const proxTerm = obtenerProximoTermino(c.tareas)
-                    const esHoy    = proxTerm === hoy
-                    const vencido  = proxTerm && proxTerm < hoy
-                    const activo   = c.estado === 'Activo'
-
+                  {filtrados.map(c => {
+                    const penal = c.expedientes_penales?.[0] ?? {}
+                    const pt    = proxTermo(c.tareas)
+                    const esH   = pt === hoy
+                    const venc  = pt && pt < hoy
+                    const act   = esActivo(c.estado)
                     return (
-                      <tr key={c.id} style={css.tr}>
-                        <td style={css.td}>
-                          <span style={{ fontWeight: 600, color: T.textPrimary, fontSize: 13 }}>
+                      <tr key={c.id} className="pen-row" style={{ cursor: 'pointer' }}>
+                        <td style={s.td}>
+                          <a href={`/sistema/expedientes/penal/detalle?id=${c.id}`} style={{ fontWeight: 600, color: T.textPrimary, fontSize: 13, textDecoration: 'none' }}>
                             {c.numero_expediente}
-                          </span>
-                          <div style={css.sub}>Carp: {penal.numero_carpeta_investigacion ?? '—'}</div>
+                          </a>
+                          <div style={s.sub}>Carp: {penal.numero_carpeta_investigacion ?? '—'}</div>
                         </td>
-                        <td style={css.td}>
-                          <span style={{ color: T.textPrimary, fontSize: 13 }}>
-                            {c.clientes?.nombre_completo ?? '—'}
-                          </span>
-                          <div style={css.sub}>{c.caracter_cliente} · {penal.rol_abogado}</div>
+                        <td style={s.td}>
+                          <span style={{ color: T.textPrimary, fontSize: 13 }}>{c.clientes?.nombre_completo ?? '—'}</span>
+                          <div style={s.sub}>{c.caracter_cliente} · {penal.rol_abogado}</div>
                         </td>
-                        <td style={{ ...css.td, color: T.textMuted, fontSize: 13 }}>{penal.delito ?? '—'}</td>
-                        <td style={{ ...css.td, color: T.textMuted, fontSize: 13 }}>{penal.estadio_procesal ?? '—'}</td>
-                        <td style={css.td}>
+                        <td style={{ ...s.td, color: T.textMuted, fontSize: 13 }}>{penal.delito ?? '—'}</td>
+                        <td style={{ ...s.td, color: T.textMuted, fontSize: 13 }}>{penal.estadio_procesal ?? '—'}</td>
+                        <td style={s.td}>
                           <span style={{ color: T.textMuted, fontSize: 13 }}>{c.jueces?.nombre ?? '—'}</span>
-                          <div style={css.sub}>{penal.ministerios_publicos?.nombre_agencia ?? 'Sin MP'}</div>
+                          <div style={s.sub}>{penal.ministerios_publicos?.nombre_agencia ?? 'Sin MP'}</div>
                         </td>
-                        <td style={css.td}>
-                          <span style={{
-                            ...css.pill,
-                            background: activo ? T.greenAlpha : 'rgba(251,191,36,0.08)',
-                            color:      activo ? T.green      : '#fbbf24',
-                            border:     `0.5px solid ${activo ? 'rgba(74,222,128,0.18)' : 'rgba(251,191,36,0.20)'}`,
-                          }}>
+                        <td style={s.td}>
+                          <span style={{ ...s.pill, background: act ? T.greenAlpha : T.goldAlpha, color: act ? T.green : T.gold, border: `1px solid ${act ? 'rgba(74,222,128,0.25)' : 'rgba(212,175,55,0.25)'}` }}>
                             {c.estado}
                           </span>
                         </td>
-                        <td style={css.td}>
-                          {proxTerm ? (
-                            <span style={{
-                              fontWeight: esHoy || vencido ? 600 : 400,
-                              color: vencido ? T.red : esHoy ? '#fbbf24' : T.textMuted,
-                              fontSize: 13,
-                            }}>
-                              {vencido ? '⚠ ' : esHoy ? '● ' : ''}{proxTerm}
+                        <td style={s.td}>
+                          {!act ? (
+                            <span style={{ ...s.pill, background: T.goldAlpha, color: T.gold, border: '1px solid rgba(212,175,55,0.25)' }}>Concluido</span>
+                          ) : pt ? (
+                            <span style={{ fontWeight: esH || venc ? 600 : 400, color: venc ? T.red : esH ? T.amber : T.textMuted, fontSize: 13 }}>
+                              {venc ? '⚠ ' : esH ? '● ' : ''}{pt}
                             </span>
                           ) : (
                             <span style={{ color: T.textFaint, fontSize: 13 }}>—</span>
@@ -240,38 +233,36 @@ export default function ClienteCausasPenales({
               </table>
             </div>
 
-            {/* Vista estilo lista de chats — mobile */}
-            <div className="pen-tabla-mobile" style={css.cardsList}>
-              {causasFiltradas.map((c) => {
-                const penal    = c.expedientes_penales?.[0] ?? {}
-                const proxTerm = obtenerProximoTermino(c.tareas)
-                const esHoy    = proxTerm === hoy
-                const vencido  = proxTerm && proxTerm < hoy
-                const activo   = c.estado === 'Activo'
-
+            {/* Mobile */}
+            <div className="pen-mobile" style={{ display: 'none', flexDirection: 'column' as const }}>
+              {filtrados.map(c => {
+                const penal = c.expedientes_penales?.[0] ?? {}
+                const pt    = proxTermo(c.tareas)
+                const esH   = pt === hoy
+                const venc  = pt && pt < hoy
+                const act   = esActivo(c.estado)
                 return (
-                  <a key={c.id} href={`/sistema/expedientes/penal/detalle?id=${c.id}`} style={css.rowLink}>
-                    <div style={css.rowAvatar}>
-                      <i className="ti ti-gavel" style={{ fontSize: 18, color: T.red }} aria-hidden="true" />
+                  <a key={c.id} href={`/sistema/expedientes/penal/detalle?id=${c.id}`} className="pen-row-link" style={s.rowLink}>
+                    <div style={{ ...s.avatar, background: ACCENT_ALPHA, color: ACCENT }}>
+                      <span style={{ fontSize: 16, fontWeight: 'bold' }}>P</span>
                     </div>
-                    <div style={css.rowBody}>
-                      <div style={css.rowTop}>
-                        <span style={css.rowTitulo}>{c.numero_expediente}</span>
-                        {proxTerm && (
-                          <span style={{
-                            ...css.rowFecha,
-                            color: vencido ? T.red : esHoy ? '#fbbf24' : T.textFaint,
-                          }}>
-                            {esHoy ? 'Hoy' : proxTerm}
-                          </span>
-                        )}
+                    <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' as const, gap: 1 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                        <span style={s.rowTitulo}>{c.numero_expediente || '—'}</span>
+                        {!act ? (
+                          <span style={{ fontSize: 11, color: T.gold, flexShrink: 0 }}>Concluido</span>
+                        ) : pt ? (
+                          <span style={{ fontSize: 11, color: venc ? T.red : esH ? T.amber : T.textFaint, flexShrink: 0 }}>{esH ? 'Hoy' : pt}</span>
+                        ) : <span style={{ fontSize: 11, color: T.textFaint }}>—</span>}
                       </div>
-                      <div style={css.rowSub}>
-                        <span style={{ ...css.rowDot, background: activo ? T.green : '#fbbf24' }} />
-                        {penal.delito || 'Sin delito especificado'}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: T.textMuted }}>
+                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: act ? T.green : T.gold, flexShrink: 0 }} />
+                        {penal.delito || 'Sin delito'}
                       </div>
                     </div>
-                    <i className="ti ti-chevron-right" style={{ fontSize: 18, color: T.textFaint, flexShrink: 0 }} aria-hidden="true" />
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ color: T.textFaint, flexShrink: 0 }}>
+                      <path d="m9 18 6-6-6-6"/>
+                    </svg>
                   </a>
                 )
               })}
@@ -282,132 +273,149 @@ export default function ClienteCausasPenales({
 
       {/* ── MODAL ── */}
       {abierto && (
-        <div style={css.overlay} onClick={() => setAbierto(false)}>
-          <div className="pen-modal" style={css.modal} onClick={(e) => e.stopPropagation()}>
-
-            <div style={css.modalHeader}>
-              <div>
-                <h2 style={css.modalTitulo}>Nueva Causa Penal</h2>
-                <p style={css.modalSub}>Complete los campos requeridos para el registro del caso</p>
+        <div style={s.overlay} onClick={() => setAbierto(false)}>
+          <div style={s.modal} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <h2 style={{ fontSize: 18, fontWeight: 700, color: T.textPrimary, margin: 0, letterSpacing: '-0.4px' }}>Nueva Causa Penal</h2>
+                <p   style={{ fontSize: 12, color: T.textMuted, margin: 0 }}>Complete los campos para el registro del caso</p>
               </div>
-              <button onClick={() => setAbierto(false)} style={css.btnCerrar} aria-label="Cerrar">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M18 6L6 18M6 6l12 12"/>
+              <button onClick={() => setAbierto(false)} style={s.btnCerrar} aria-label="Cerrar">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M18 6L6 18M6 6l12 12" />
                 </svg>
               </button>
             </div>
 
-            {error && (
-              <div style={css.alertaError}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/>
-                </svg>
-                {error}
-              </div>
-            )}
+            {error && <Alerta tipo="error">{error}</Alerta>}
 
-            <form action={manejarSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-
-              <Seccion titulo="Información de la Causa" icono="📋">
-                <div style={css.grid2}>
-                  <Campo label="Número de Causa *">
-                    <input name="numero_causa" required style={css.input} placeholder="Ej: 118-2025" />
-                  </Campo>
-                  <Campo label="Número de Carpeta de Investigación">
-                    <input name="numero_carpeta" style={css.input} placeholder="Ej: 05-20-26" />
-                  </Campo>
-                  <Campo label="Delito *">
-                    <input name="delito" required style={css.input} placeholder="Ej: Robo con violencia" />
-                  </Campo>
-                  <Campo label="Etapa Procesal *">
-                    <select name="etapa_procesal" required style={css.input} defaultValue="">
-                      <option value="" disabled>Seleccionar…</option>
-                      <option>Inicial</option>
-                      <option>Intermedia</option>
-                      <option>Juicio</option>
-                    </select>
-                  </Campo>
-                  <Campo label="Fecha de Inicio *">
-                    <input name="fecha_inicio" type="date" required style={css.input} />
-                  </Campo>
-                  <Campo label="Estado">
-                    <select name="estado" style={css.input} defaultValue="Activo">
-                      <option>Activo</option>
-                      <option>Concluido</option>
-                    </select>
-                  </Campo>
+            <form action={manejarSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <Seccion titulo="Información de la causa" icono="📋">
+                <div className="pen-form-row" style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 10 }}>
+                  <div className="pen-col-form" style={{ flex: '1 1 200px' }}>
+                    <Campo label="Número de causa *">
+                      <input name="numero_causa" required style={s.input} placeholder="Ej: 118-2025" />
+                    </Campo>
+                  </div>
+                  <div className="pen-col-form" style={{ flex: '1 1 200px' }}>
+                    <Campo label="No. Carpeta de Investigación">
+                      <input name="numero_carpeta" style={s.input} placeholder="Ej: 05-20-26" />
+                    </Campo>
+                  </div>
+                  <div className="pen-col-form" style={{ flex: '1 1 200px' }}>
+                    <Campo label="Delito *">
+                      <input name="delito" required style={s.input} placeholder="Ej: Robo con violencia" />
+                    </Campo>
+                  </div>
+                  <div className="pen-col-form" style={{ flex: '1 1 200px' }}>
+                    <Campo label="Etapa procesal *">
+                      <select name="etapa_procesal" required style={s.input} defaultValue="">
+                        <option value="" disabled>Seleccionar...</option>
+                        <option>Inicial</option>
+                        <option>Intermedia</option>
+                        <option>Juicio</option>
+                      </select>
+                    </Campo>
+                  </div>
+                  <div className="pen-col-form" style={{ flex: '1 1 200px' }}>
+                    <Campo label="Fecha de inicio *">
+                      <input name="fecha_inicio" type="date" required style={s.input} />
+                    </Campo>
+                  </div>
+                  <div className="pen-col-form" style={{ flex: '1 1 200px' }}>
+                    <Campo label="Estado">
+                      <select name="estado" style={s.input} defaultValue="Activo">
+                        <option>Activo</option>
+                        <option>Concluido</option>
+                      </select>
+                    </Campo>
+                  </div>
                 </div>
               </Seccion>
 
-              <Seccion titulo="Partes Involucradas" icono="👥">
-                <div style={css.grid2}>
-                  <Campo label="Cliente *">
-                    <input name="cliente_nombre" required style={css.input} placeholder="Nombre del cliente" />
-                  </Campo>
-                  <Campo label="Rol del Cliente *">
-                    <select name="rol_cliente" required style={css.input} defaultValue="Imputado">
-                      <option>Imputado</option>
-                      <option>Víctima</option>
-                    </select>
-                  </Campo>
-                  <Campo label="Rol del Abogado *">
-                    <select name="rol_abogado" required style={css.input} defaultValue="Defensor">
-                      <option>Defensor</option>
-                      <option>Asesor jurídico</option>
-                    </select>
-                  </Campo>
-                  <Campo label="Contraparte">
-                    <input name="contraparte" style={css.input} placeholder="Nombre de la contraparte u ofendido" />
-                  </Campo>
+              <Seccion titulo="Partes involucradas" icono="👥">
+                <div className="pen-form-row" style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 10 }}>
+                  <div className="pen-col-form" style={{ flex: '1 1 200px' }}>
+                    <Campo label="Cliente *">
+                      <input name="cliente_nombre" required style={s.input} placeholder="Nombre del cliente" />
+                    </Campo>
+                  </div>
+                  <div className="pen-col-form" style={{ flex: '1 1 200px' }}>
+                    <Campo label="Rol del cliente *">
+                      <select name="rol_cliente" required style={s.input} defaultValue="Imputado">
+                        <option>Imputado</option>
+                        <option>Víctima</option>
+                      </select>
+                    </Campo>
+                  </div>
+                  <div className="pen-col-form" style={{ flex: '1 1 200px' }}>
+                    <Campo label="Rol del abogado *">
+                      <select name="rol_abogado" required style={s.input} defaultValue="Defensor">
+                        <option>Defensor</option>
+                        <option>Asesor jurídico</option>
+                      </select>
+                    </Campo>
+                  </div>
+                  <div className="pen-col-form" style={{ flex: '1 1 200px' }}>
+                    <Campo label="Contraparte">
+                      <input name="contraparte" style={s.input} placeholder="Nombre de la contraparte u ofendido" />
+                    </Campo>
+                  </div>
                 </div>
               </Seccion>
 
-              <Seccion titulo="Información Procesal" icono="⚖️">
-                <div style={css.grid2}>
-                  <Campo label="Juez Asignado *">
-                    <select name="juez_id" required style={css.input} defaultValue="">
-                      <option value="" disabled>Seleccionar juez</option>
-                      {jueces.map((j) => <option key={j.id} value={j.id}>{j.nombre}</option>)}
-                    </select>
-                  </Campo>
-                  <Campo label="Ministerio Público a cargo">
-                    <select name="mp_id" style={css.input} defaultValue="">
-                      <option value="">Seleccionar MP</option>
-                      {ministerios.map((m) => <option key={m.id} value={m.id}>{m.nombre_agencia}</option>)}
-                    </select>
-                  </Campo>
-                  <Campo label="Fecha Próxima Audiencia (Término)">
-                    <input name="fecha_limite_termino" type="date" style={css.input} />
-                  </Campo>
-                  <Campo label="Tipo de Audiencia">
-                    <select name="plazo_otorgado" style={css.input} defaultValue="">
-                      <option value="">Seleccionar…</option>
-                      <option>Inicial</option>
-                      <option>Vinculación</option>
-                      <option>Cautelar</option>
-                    </select>
-                  </Campo>
-                  <Campo label="Abogado Responsable">
-                    <select name="abogado_id" style={css.input} defaultValue="">
-                      <option value="">Sin asignar</option>
-                      {abogados.map((a) => <option key={a.id} value={a.id}>{a.nombre_completo}</option>)}
-                    </select>
-                  </Campo>
+              <Seccion titulo="Información procesal" icono="⚖️">
+                <div className="pen-form-row" style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 10 }}>
+                  <div className="pen-col-form" style={{ flex: '1 1 200px' }}>
+                    <Campo label="Juez asignado *">
+                      <select name="juez_id" required style={s.input} defaultValue="">
+                        <option value="" disabled>Seleccionar juez</option>
+                        {jueces.map((j) => <option key={j.id} value={j.id}>{j.nombre}</option>)}
+                      </select>
+                    </Campo>
+                  </div>
+                  <div className="pen-col-form" style={{ flex: '1 1 200px' }}>
+                    <Campo label="Ministerio Público">
+                      <select name="mp_id" style={s.input} defaultValue="">
+                        <option value="">Seleccionar MP</option>
+                        {ministerios.map((m) => <option key={m.id} value={m.id}>{m.nombre_agencia}</option>)}
+                      </select>
+                    </Campo>
+                  </div>
+                  <div className="pen-col-form" style={{ flex: '1 1 200px' }}>
+                    <Campo label="Próx. audiencia (término)">
+                      <input name="fecha_limite_termino" type="date" style={s.input} />
+                    </Campo>
+                  </div>
+                  <div className="pen-col-form" style={{ flex: '1 1 200px' }}>
+                    <Campo label="Tipo de audiencia">
+                      <select name="plazo_otorgado" style={s.input} defaultValue="">
+                        <option value="">Seleccionar...</option>
+                        <option>Inicial</option>
+                        <option>Vinculación</option>
+                        <option>Cautelar</option>
+                      </select>
+                    </Campo>
+                  </div>
+                  <div className="pen-col-form" style={{ flex: '1 1 200px' }}>
+                    <Campo label="Abogado responsable">
+                      <select name="abogado_id" style={s.input} defaultValue="">
+                        <option value="">Sin asignar</option>
+                        {abogados.map((a) => <option key={a.id} value={a.id}>{a.nombre_completo}</option>)}
+                      </select>
+                    </Campo>
+                  </div>
                 </div>
                 <Campo label="Descripción / Notas">
-                  <textarea name="descripcion" rows={3} style={{ ...css.input, resize: 'vertical' as const }} placeholder="Descripción general del caso…" />
+                  <textarea name="descripcion" rows={3} style={s.textarea}
+                    placeholder="Descripción general del caso..." />
                 </Campo>
               </Seccion>
 
-              <div style={css.modalFooter}>
-                <button type="button" onClick={() => setAbierto(false)} style={css.btnSecundario}>
-                  Cancelar
-                </button>
-                <button type="submit" style={css.btnPrimario}>
-                  Crear causa
-                </button>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, paddingTop: 10, borderTop: `1px solid ${T.border}` }}>
+                <button type="button" onClick={() => setAbierto(false)} style={s.btnSec}>Cancelar</button>
+                <button type="submit" style={{ ...s.btnPrimario, background: ACCENT }}>Crear causa</button>
               </div>
-
             </form>
           </div>
         </div>
@@ -416,18 +424,26 @@ export default function ClienteCausasPenales({
   )
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 🧩 SUBCOMPONENTES
-// ─────────────────────────────────────────────────────────────────────────────
-function Seccion({ titulo, icono, children }: { titulo: string; icono: string; children: React.ReactNode }) {
+// ─── Sub-componentes ──────────────────────────────────────────────────────
+function Alerta({ tipo, children }: { tipo: 'ok' | 'error'; children: React.ReactNode }) {
+  const ok = tipo === 'ok'
   return (
     <div style={{
-      border: `0.5px solid ${T.border}`,
-      borderRadius: 10,
-      padding: '18px 20px',
-      background: T.surface,
+      display: 'flex', alignItems: 'center', gap: 8,
+      color:      ok ? '#4ade80' : '#b3434f',
+      background: ok ? 'rgba(74,222,128,0.08)' : 'rgba(179,67,79,0.10)',
+      border:     `1px solid ${ok ? 'rgba(74,222,128,0.15)' : 'rgba(179,67,79,0.20)'}`,
+      padding: '8px 12px', borderRadius: 6, fontSize: 12.5, fontWeight: 500, marginBottom: 12,
     }}>
-      <div style={{ fontSize: 13, fontWeight: 600, color: T.textMuted, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 7 }}>
+      {children}
+    </div>
+  )
+}
+
+function Seccion({ titulo, icono, children }: { titulo: string; icono: string; children: React.ReactNode }) {
+  return (
+    <div style={{ border: `1px solid rgba(255,255,255,0.06)`, borderRadius: 8, padding: '12px 14px', background: '#0b1220' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, fontWeight: 600, color: 'rgba(255,255,255,0.40)', marginBottom: 10 }}>
         <span>{icono}</span>{titulo}
       </div>
       {children}
@@ -437,390 +453,216 @@ function Seccion({ titulo, icono, children }: { titulo: string; icono: string; c
 
 function Campo({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 4 }}>
-      <label style={{ fontSize: 12, fontWeight: 600, color: T.textMuted, letterSpacing: '0.01em' }}>
-        {label}
-      </label>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <label style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.40)' }}>{label}</label>
       {children}
     </div>
   )
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 🎨 ESTILOS
-// ─────────────────────────────────────────────────────────────────────────────
-const css = {
+// ─── Estilos (estructura Amparos, acento rojo) ────────────────────────────
+const s = {
   root: {
     width: '100%',
-    padding: 'clamp(20px, 5vw, 40px) clamp(20px, 5vw, 40px)',
+    padding: '16px 12px',
     boxSizing: 'border-box' as const,
   },
-
-  pageHeader: {
+  header: {
     display: 'flex',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 24,
-    gap: 16,
+    alignItems: 'center',
     flexWrap: 'wrap' as const,
+    gap: 12,
+    marginBottom: 16,
   },
-
   titulo: {
-    fontSize: 'clamp(20px, 3vw, 26px)',
+    fontSize: '20px',
     fontWeight: 700,
     color: T.textPrimary,
     margin: 0,
-    letterSpacing: '-0.5px',
+    letterSpacing: '-0.3px',
   } as React.CSSProperties,
-
   subtitulo: {
-    fontSize: 13,
-    color: T.textMuted,
-    margin: '5px 0 0',
     display: 'flex',
     alignItems: 'center',
     gap: 6,
+    fontSize: 12,
+    color: T.textMuted,
+    margin: 0,
   } as React.CSSProperties,
-
   dot: {
     display: 'inline-block' as const,
-    width: 6,
-    height: 6,
+    width: 6, height: 6,
     borderRadius: '50%',
-    background: T.red,
     flexShrink: 0,
   },
-
   btnPrimario: {
     display: 'flex',
     alignItems: 'center',
-    gap: 7,
-    padding: '10px 18px',
-    background: T.red,
-    color: 'white',
+    justifyContent: 'center',
+    gap: 6,
+    padding: '8px 16px',
+    color: '#fff',
     border: 'none',
-    borderRadius: 9,
+    borderRadius: 6,
     fontSize: 13,
     fontWeight: 600,
     cursor: 'pointer',
     whiteSpace: 'nowrap' as const,
-    flexShrink: 0,
   } as React.CSSProperties,
-
-  btnSecundario: {
-    padding: '10px 18px',
+  btnSec: {
+    padding: '8px 16px',
     background: 'transparent',
     color: T.textMuted,
-    border: `0.5px solid ${T.border}`,
-    borderRadius: 9,
+    border: `1px solid ${T.border}`,
+    borderRadius: 6,
     fontSize: 13,
     cursor: 'pointer',
   } as React.CSSProperties,
-
-  alertaExito: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    color: T.green,
-    background: T.greenAlpha,
-    border: `0.5px solid rgba(74,222,128,0.18)`,
-    padding: '10px 14px',
-    borderRadius: 8,
-    fontSize: 13,
-    fontWeight: 500,
-    marginBottom: 16,
+  btnCerrar: {
+    width: 28, height: 28,
+    border: `1px solid ${T.border}`,
+    borderRadius: 6,
+    background: '#0f1828',
+    color: T.textMuted,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    cursor: 'pointer',
   } as React.CSSProperties,
-
-  alertaError: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    color: T.red,
-    background: T.redAlpha,
-    border: `0.5px solid rgba(179,67,79,0.22)`,
-    padding: '10px 14px',
-    borderRadius: 8,
-    fontSize: 13,
-    fontWeight: 500,
-    marginBottom: 4,
-  } as React.CSSProperties,
-
   filtrosRow: {
     display: 'flex',
-    gap: 10,
     alignItems: 'center',
-    marginBottom: 16,
     flexWrap: 'wrap' as const,
+    gap: 8,
+    marginBottom: 14,
   },
-
-  searchWrap: {
-    position: 'relative' as const,
-    display: 'flex',
-    alignItems: 'center',
-    flex: 1,
-    minWidth: 200,
-  },
-
   searchIcon: {
     position: 'absolute' as const,
-    left: 11,
-    color: T.textFaint,
+    left: 10,
+    color: T.textMuted,
     pointerEvents: 'none' as const,
   },
-
   searchInput: {
     width: '100%',
-    padding: '9px 12px 9px 33px',
+    padding: '8px 10px 8px 30px',
     background: '#0f1828',
-    border: `0.5px solid ${T.border}`,
-    borderRadius: 8,
+    border: `1px solid ${T.border}`,
+    borderRadius: 6,
     color: T.textPrimary,
     fontSize: 13,
     outline: 'none',
   } as React.CSSProperties,
-
-  tabs: {
-    display: 'flex',
-    gap: 6,
-    flexWrap: 'wrap' as const,
-  },
-
   tab: (activo: boolean): React.CSSProperties => ({
-    padding: '8px 14px',
-    background: activo ? T.redAlpha : 'transparent',
-    color:      activo ? T.red      : T.textMuted,
-    border:     `0.5px solid ${activo ? 'rgba(179,67,79,0.35)' : T.border}`,
-    borderRadius: 8,
+    padding: '6px 12px',
+    background: activo ? ACCENT_ALPHA : 'transparent',
+    color:      activo ? ACCENT : T.textMuted,
+    border:     `1px solid ${activo ? ACCENT_BORDER : T.border}`,
+    borderRadius: 6,
     cursor: 'pointer',
-    fontSize: 12.5,
+    fontSize: 12,
     fontWeight: activo ? 600 : 400,
-    transition: 'all 0.15s',
     whiteSpace: 'nowrap' as const,
   }),
-
   tabla: {
     background: T.surface,
-    border: `0.5px solid ${T.border}`,
-    borderRadius: 12,
+    border: `1px solid ${T.border}`,
+    borderRadius: 8,
     overflow: 'hidden',
   } as React.CSSProperties,
-
   vacio: {
     display: 'flex',
     flexDirection: 'column' as const,
     alignItems: 'center',
-    gap: 10,
-    padding: '48px 24px',
+    gap: 6,
+    padding: '32px 16px',
     color: T.textFaint,
     fontSize: 13,
   },
-
   table: {
     width: '100%',
     borderCollapse: 'collapse' as const,
     minWidth: 700,
   },
-
-  // ── Vista de cards (mobile) ──
-  cardsList: {
-    display: 'none',
-    flexDirection: 'column' as const,
-    gap: 1,
-  } as React.CSSProperties,
-
-  // ── Fila estilo lista de chats (mobile) ──
-  rowLink: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 12,
-    padding: '12px 16px',
-    borderBottom: `0.5px solid ${T.border}`,
-    textDecoration: 'none',
-    color: 'inherit',
-    transition: 'background 0.12s',
-  } as React.CSSProperties,
-
-  rowAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: '50%',
-    background: T.redAlpha,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-  } as React.CSSProperties,
-
-  rowBody: {
-    flex: 1,
-    minWidth: 0,
-    display: 'flex',
-    flexDirection: 'column' as const,
-    gap: 3,
-  } as React.CSSProperties,
-
-  rowTop: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 8,
-  } as React.CSSProperties,
-
-  rowTitulo: {
-    fontSize: 14.5,
-    fontWeight: 600,
-    color: T.textPrimary,
-    whiteSpace: 'nowrap' as const,
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-  } as React.CSSProperties,
-
-  rowFecha: {
-    fontSize: 11.5,
-    flexShrink: 0,
-    whiteSpace: 'nowrap' as const,
-  } as React.CSSProperties,
-
-  rowSub: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 6,
-    fontSize: 13,
-    color: T.textMuted,
-    whiteSpace: 'nowrap' as const,
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-  } as React.CSSProperties,
-
-  rowDot: {
-    width: 6,
-    height: 6,
-    borderRadius: '50%',
-    flexShrink: 0,
-  } as React.CSSProperties,
-
   th: {
-    padding: '10px 16px',
-    fontSize: 11,
+    padding: '8px 14px',
+    fontSize: 10.5,
     fontWeight: 600,
-    color: T.textFaint,
-    letterSpacing: '0.06em',
+    color: T.textMuted,
+    letterSpacing: '0.04em',
     textTransform: 'uppercase' as const,
     textAlign: 'left' as const,
     background: '#0f1828',
-    borderBottom: `0.5px solid ${T.border}`,
-    whiteSpace: 'nowrap' as const,
+    borderBottom: `1px solid ${T.border}`,
   },
-
-  tr: {
-    transition: 'background 0.12s',
-    cursor: 'pointer',
-  } as React.CSSProperties,
-
   td: {
-    padding: '13px 16px',
-    borderBottom: `0.5px solid ${T.border}`,
-    verticalAlign: 'top' as const,
+    padding: '10px 14px',
+    borderBottom: `1px solid ${T.border}`,
+    verticalAlign: 'middle' as const,
   } as React.CSSProperties,
-
-  sub: {
-    fontSize: 11.5,
-    color: T.textFaint,
-    marginTop: 3,
+  sub: { fontSize: 11, color: T.textFaint, marginTop: 2 } as React.CSSProperties,
+  pill: { fontSize: 10.5, fontWeight: 600, padding: '2px 8px', borderRadius: 20 } as React.CSSProperties,
+  rowLink: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    padding: '10px 12px',
+    borderBottom: `1px solid ${T.border}`,
+    textDecoration: 'none',
+    color: 'inherit',
   } as React.CSSProperties,
-
-  pill: {
-    fontSize: 11,
+  avatar: {
+    width: 32, height: 32,
+    borderRadius: '50%',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    flexShrink: 0,
+  } as React.CSSProperties,
+  rowTitulo: {
+    fontSize: 13.5,
     fontWeight: 600,
-    padding: '3px 10px',
-    borderRadius: 20,
+    color: T.textPrimary,
   } as React.CSSProperties,
-
   overlay: {
     position: 'fixed' as const,
     inset: 0,
-    background: 'rgba(6,10,18,0.75)',
+    background: 'rgba(6,10,18,0.8)',
     backdropFilter: 'blur(4px)',
-    display: 'flex',
-    alignItems: 'flex-start',
-    justifyContent: 'center',
-    padding: '24px 16px',
-    overflowY: 'auto' as const,
-    zIndex: 200,
-  },
-
-  modal: {
-    background: T.surface,
-    border: `0.5px solid ${T.border}`,
-    borderRadius: 14,
-    padding: '28px 28px',
-    width: '100%',
-    maxWidth: 820,
-    marginTop: 20,
-    display: 'flex',
-    flexDirection: 'column' as const,
-    gap: 16,
-  },
-
-  modalHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: 12,
-  } as React.CSSProperties,
-
-  modalTitulo: {
-    fontSize: 20,
-    fontWeight: 700,
-    color: T.textPrimary,
-    margin: '4px 0 0',
-    letterSpacing: '-0.4px',
-  } as React.CSSProperties,
-
-  modalSub: {
-    fontSize: 12.5,
-    color: T.textMuted,
-    margin: '4px 0 0',
-  } as React.CSSProperties,
-
-  btnCerrar: {
-    width: 32,
-    height: 32,
-    border: `0.5px solid ${T.border}`,
-    borderRadius: 8,
-    background: '#0f1828',
-    color: T.textMuted,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    cursor: 'pointer',
-    flexShrink: 0,
-  } as React.CSSProperties,
-
-  modalFooter: {
+    padding: '12px',
+    zIndex: 200,
+  },
+  modal: {
+    background: T.surface,
+    border: `1px solid ${T.border}`,
+    borderRadius: 10,
+    padding: '16px',
+    width: '100%',
+    maxWidth: 500,
     display: 'flex',
-    justifyContent: 'flex-end',
-    gap: 10,
-    paddingTop: 4,
-    borderTop: `0.5px solid ${T.border}`,
-  } as React.CSSProperties,
-
-  grid2: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-    gap: 14,
-    marginBottom: 8,
-  } as React.CSSProperties,
-
+    flexDirection: 'column' as const,
+    gap: 12,
+  },
   input: {
     width: '100%',
-    padding: '10px 12px',
+    padding: '8px 10px',
     background: '#0f1828',
-    border: `0.5px solid ${T.border}`,
-    borderRadius: 8,
+    border: `1px solid ${T.border}`,
+    borderRadius: 6,
     color: T.textPrimary,
     fontSize: 13,
-    boxSizing: 'border-box' as const,
     outline: 'none',
+    boxSizing: 'border-box' as const,
+  } as React.CSSProperties,
+  textarea: {
+    width: '100%',
+    padding: '8px 10px',
+    background: '#0f1828',
+    border: `1px solid ${T.border}`,
+    borderRadius: 6,
+    color: T.textPrimary,
+    fontSize: 13,
+    outline: 'none',
+    boxSizing: 'border-box' as const,
+    resize: 'vertical' as const,
   } as React.CSSProperties,
 }

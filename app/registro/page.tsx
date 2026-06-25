@@ -31,11 +31,20 @@ export default async function RegistroPage({
 
       <div style={css.center}>
 
-        {/* Logo */}
+        {/* Logo circular */}
         <div style={css.logoRow}>
-          <div style={css.logoMark}>
-            <span style={{ fontSize: 16, fontWeight: 800, color: T.gold, letterSpacing: '-0.5px' }}>JL</span>
-          </div>
+          <img
+            src="/img/Gemini_Generated_Image_wbbwjpwbbwjpwbbw.png"
+            alt="Logo"
+            style={{
+              width: 44,
+              height: 44,
+              borderRadius: '50%',
+              objectFit: 'cover',
+              flexShrink: 0,
+              border: '0.5px solid rgba(212,175,55,0.30)',
+            }}
+          />
           <div>
             <div style={css.logoNombre}>Jurídico Legal</div>
             <div style={css.logoSub}>Sistema de Gestión Jurídica</div>
@@ -193,17 +202,7 @@ const css = {
     gap: 12,
   } as React.CSSProperties,
 
-  logoMark: {
-    width: 44,
-    height: 44,
-    borderRadius: 11,
-    background: T.surfaceHigh,
-    border: `0.5px solid rgba(212,175,55,0.30)`,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-  } as React.CSSProperties,
+  // logoMark ya no se necesita
 
   logoNombre: {
     fontSize: 17,

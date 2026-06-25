@@ -72,7 +72,7 @@ export default async function CivilFamiliarPage() {
   }))
 
   return (
-    <div style={{ padding: 'clamp(20px, 4vw, 40px) clamp(20px, 5vw, 40px)', maxWidth: 1200 }}>
+    <div style={{ padding: 'clamp(20px, 4vw, 40px) clamp(20px, 5vw, 40px)', width: '100%' }}>
       <ClienteCivilFamiliar
         materias={materiasDB ?? []}
         juzgados={juzgados ?? []}

@@ -146,10 +146,19 @@ export default function SistemaLayout({ children }: { children: React.ReactNode 
 
   const SidebarContent = (
     <>
+      {/* ─── LOGO ─── */}
       <div style={css.logoRow}>
-        <div style={css.logoMark}>
-          <span style={{ fontSize: 13, fontWeight: 700, color: T.accent }}>JL</span>
-        </div>
+        <img
+          src="/img/Gemini_Generated_Image_wbbwjpwbbwjpwbbw.png"
+          alt="Logo"
+          style={{
+            width: 32,
+            height: 32,
+            borderRadius: '50%',
+            objectFit: 'cover',
+            flexShrink: 0,
+          }}
+        />
         <span style={{ ...css.fadeText(expandido || isMobile), fontSize: 13, fontWeight: 600, color: T.textPrimary, letterSpacing: '-0.3px' }}>
           Jurídico Legal
         </span>
@@ -475,17 +484,7 @@ const css = {
     flexShrink:   0,
   } as React.CSSProperties,
 
-  logoMark: {
-    width:          32,
-    height:         32,
-    borderRadius:   8,
-    background:     '#0f1830',
-    border:         `0.5px solid rgba(58,95,184,0.35)`,
-    display:        'flex',
-    alignItems:     'center',
-    justifyContent: 'center',
-    flexShrink:     0,
-  } as React.CSSProperties,
+  // logoMark ya no se usa; el logo es una imagen circular
 
   navArea: {
     flex:          1,

@@ -75,10 +75,13 @@ export default async function AmparosPage() {
   }))
 
   return (
-    <ClienteAmparos
-      juzgados={juzgadosDistrito ?? []}
-      abogados={abogados ?? []}
-      amparos={amparosNormalizados}
-    />
+    // ✅ Mismo contenedor que Civil y Penal para igualar el espaciado
+    <div style={{ padding: 'clamp(20px, 4vw, 40px) clamp(20px, 5vw, 40px)', width: '100%' }}>
+      <ClienteAmparos
+        juzgados={juzgadosDistrito ?? []}
+        abogados={abogados ?? []}
+        amparos={amparosNormalizados}
+      />
+    </div>
   )
 }

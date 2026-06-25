@@ -2,9 +2,6 @@
 
 import { useRouter } from 'next/navigation'
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 🎨 TOKENS — idénticos al resto del sistema
-// ─────────────────────────────────────────────────────────────────────────────
 const T = {
   surface:      '#0b1220',
   border:       'rgba(255,255,255,0.06)',
@@ -23,9 +20,6 @@ const T = {
   textAccent:   '#8fa8e0',
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// TYPES
-// ─────────────────────────────────────────────────────────────────────────────
 interface PerfilProps {
   usuario: any
   expedientes: any[]
@@ -34,173 +28,158 @@ interface PerfilProps {
   actividad: any[]
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// COMPONENTE PRINCIPAL
-// ─────────────────────────────────────────────────────────────────────────────
-export default function PerfilUsuarioCliente({
-  usuario,
-  expedientes,
-  conteoTareas,
-  conteoEventos,
-  actividad,
-}: PerfilProps) {
+export default function PerfilUsuarioCliente({ usuario, expedientes, conteoTareas, conteoEventos, actividad }: PerfilProps) {
   const router = useRouter()
 
   const formatearFecha = (fechaStr: string) => {
     if (!fechaStr) return '—'
-    return new Date(fechaStr).toLocaleDateString('es-MX', {
-      day: 'numeric', month: 'short', year: 'numeric',
-    })
+    return new Date(fechaStr).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })
   }
 
-  const iniciales = usuario.nombre_completo
-    ?.split(' ')
-    .slice(0, 2)
-    .map((w: string) => w[0])
-    .join('')
-    .toUpperCase() ?? 'US'
+  const iniciales = usuario.nombre_completo?.split(' ').slice(0, 2).map((w: string) => w[0]).join('').toUpperCase() ?? 'US'
 
   return (
-    <div style={css.root}>
+    <div style={{ width: '100%', padding: 'clamp(20px, 4vw, 40px) clamp(16px, 4vw, 40px)', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: 20 }}>
 
-      {/* ── HEADER ── */}
-      <div style={css.headerRow}>
-        <span style={css.breadcrumb}>
-          Usuarios &rsaquo;{' '}
-          <span style={{ color: T.textPrimary }}>{usuario.nombre_completo}</span>
+      <style>{`
+        .perfil-grid { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 20px; align-items: start; }
+        .kpi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+        .t-fila { display: grid; grid-template-columns: minmax(0,1.2fr) minmax(0,1.2fr) 100px 100px; padding: 11px 18px; border-bottom: 0.5px solid rgba(255,255,255,0.06); align-items: center; gap: 12px; }
+        .t-col-hide { display: block; }
+        .p-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
+        .p-header-btns { display: flex; gap: 10px; flex-wrap: wrap; }
+        @media (max-width: 900px) {
+          .perfil-grid { grid-template-columns: 1fr; }
+        }
+        @media (max-width: 640px) {
+          .t-fila { grid-template-columns: minmax(0,1fr) 80px; padding: 10px 12px; }
+          .t-col-hide { display: none; }
+          .p-header { flex-direction: column; align-items: flex-start; }
+          .kpi-grid { gap: 8px; }
+        }
+        @media (max-width: 420px) {
+          .kpi-grid { grid-template-columns: 1fr 1fr; }
+        }
+      `}</style>
+
+      {/* Header */}
+      <div className="p-header">
+        <span style={{ fontSize: 12, color: T.textMuted }}>
+          Mi perfil &rsaquo; <span style={{ color: T.textPrimary }}>{usuario.nombre_completo}</span>
         </span>
-        <div style={css.headerActions}>
-          <button style={css.btnGhost}>Desactivar</button>
-          <button style={css.btnPrimary}>Editar perfil</button>
+        <div className="p-header-btns">
+          <button style={{ background: 'transparent', border: '0.5px solid rgba(255,255,255,0.12)', borderRadius: 8, padding: '7px 16px', fontSize: 12, fontWeight: 500, color: T.textMuted, cursor: 'pointer', fontFamily: 'inherit' }}>
+            Desactivar
+          </button>
+          <button style={{ background: T.accent, border: 'none', borderRadius: 8, padding: '7px 16px', fontSize: 12, fontWeight: 600, color: '#fff', cursor: 'pointer', fontFamily: 'inherit' }}>
+            Editar perfil
+          </button>
         </div>
       </div>
 
-      {/* ── TÍTULO ── */}
-      <div style={css.titleRow}>
-        <button onClick={() => router.back()} style={css.btnBack}>←</button>
-        <h1 style={css.heading}>Perfil de usuario</h1>
+      {/* Título */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <button onClick={() => router.back()} aria-label="Volver" style={{ background: T.surface, border: '0.5px solid rgba(255,255,255,0.12)', borderRadius: 8, width: 34, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, color: T.textPrimary, cursor: 'pointer', fontFamily: 'inherit' }}>←</button>
+        <h1 style={{ fontSize: 'clamp(18px, 2.5vw, 22px)', fontWeight: 700, margin: 0, letterSpacing: '-0.5px', color: T.textPrimary }}>Perfil de usuario</h1>
       </div>
 
-      {/* ── GRID PRINCIPAL ── */}
-      <div style={css.grid}>
+      {/* Grid principal */}
+      <div className="perfil-grid">
 
-        {/* COLUMNA IZQUIERDA */}
-        <div style={css.col}>
+        {/* Col izquierda */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
-          {/* Tarjeta de identidad */}
-          <div style={{ ...css.card, textAlign: 'center', padding: '24px 20px' }}>
-            <div style={css.avatar}>{iniciales}</div>
-            <div style={css.nombre}>{usuario.nombre_completo}</div>
-            <div style={css.email}>{usuario.email}</div>
+          <div style={{ background: T.surface, border: `0.5px solid ${T.border}`, borderRadius: 12, padding: '28px 20px', textAlign: 'center' }}>
+            <div style={{ width: 60, height: 60, borderRadius: '50%', background: T.accentAlpha, border: `0.5px solid ${T.accentBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, fontWeight: 700, color: T.textAccent, margin: '0 auto 14px' }}>
+              {iniciales}
+            </div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: T.textPrimary, marginBottom: 4 }}>{usuario.nombre_completo}</div>
+            <div style={{ fontSize: 12, color: T.textMuted, marginBottom: 14 }}>{usuario.email}</div>
             <MateriaChip nombre={usuario.rol ?? 'Abogado'} />
-            <div style={css.estadoFila}>
-              <span style={css.dotVerde} />
-              Cuenta activa
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 14, fontSize: 12, color: T.textMuted }}>
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: usuario.activo ? T.green : T.red, display: 'inline-block' }} />
+              {usuario.activo ? 'Cuenta activa' : 'Cuenta inactiva'}
             </div>
           </div>
 
-          {/* Datos de la cuenta */}
-          <div style={css.card}>
-            <p style={css.sectionTitle}>Datos de la cuenta</p>
+          <div style={{ background: T.surface, border: `0.5px solid ${T.border}`, borderRadius: 12, padding: 20 }}>
+            <p style={{ fontSize: 13, fontWeight: 600, color: T.textPrimary, margin: '0 0 14px' }}>Datos de la cuenta</p>
             {[
               ['Nombre completo',    usuario.nombre_completo],
               ['Correo electrónico', usuario.email],
               ['Rol asignado',       usuario.rol ?? '—'],
-              ['Fecha de alta',      formatearFecha(usuario.fecha_alta)],
-              ['Último acceso',      'Hoy · 08:50 am'],
+              ['Fecha de alta',      formatearFecha(usuario.created_at ?? usuario.fecha_alta)],
             ].map(([label, val]) => (
-              <div key={label} style={css.datumRow}>
-                <span style={css.datumLabel}>{label}</span>
-                <span style={css.datumVal}>{val}</span>
+              <div key={label} style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: '10px 0', borderBottom: `0.5px solid ${T.border}` }}>
+                <span style={{ fontSize: 11, fontWeight: 500, color: T.textMuted, letterSpacing: '0.05em', textTransform: 'uppercase' }}>{label}</span>
+                <span style={{ fontSize: 13, fontWeight: 500, color: T.textPrimary }}>{val}</span>
               </div>
             ))}
           </div>
         </div>
 
-        {/* COLUMNA DERECHA */}
-        <div style={css.col}>
+        {/* Col derecha */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
-          {/* KPIs */}
-          <div style={css.kpiGrid}>
-            <KpiCard label="Expedientes"    value={expedientes.length} />
-            <KpiCard label="Tareas activas" value={conteoTareas} />
-            <KpiCard label="Aud. próximas"  value={conteoEventos} />
+          <div className="kpi-grid">
+            {[
+              { label: 'Expedientes',    value: expedientes.length },
+              { label: 'Tareas activas', value: conteoTareas },
+              { label: 'Aud. próximas',  value: conteoEventos },
+            ].map(({ label, value }) => (
+              <div key={label} style={{ background: T.surface, border: `0.5px solid ${T.border}`, borderRadius: 12, padding: '14px 16px', textAlign: 'center' }}>
+                <div style={{ fontSize: 10, fontWeight: 600, color: T.textFaint, letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: 6 }}>{label}</div>
+                <div style={{ fontSize: 28, fontWeight: 700, color: T.textPrimary, letterSpacing: '-1px', lineHeight: 1 }}>{value}</div>
+              </div>
+            ))}
           </div>
 
-          {/* Tabla de expedientes */}
-          <div style={css.card}>
-            <p style={css.sectionTitle}>Expedientes asignados</p>
-            <div style={css.tabla}>
-              <div style={{ ...css.tablaFila, ...css.tablaCabecera }}>
+          <div style={{ background: T.surface, border: `0.5px solid ${T.border}`, borderRadius: 12, padding: 20 }}>
+            <p style={{ fontSize: 13, fontWeight: 600, color: T.textPrimary, margin: '0 0 14px' }}>Expedientes asignados</p>
+            <div style={{ border: `0.5px solid ${T.border}`, borderRadius: 10, overflow: 'hidden' }}>
+              <div className="t-fila" style={{ fontSize: 11, fontWeight: 500, color: T.textFaint, letterSpacing: '0.06em', textTransform: 'uppercase', background: '#080b14' }}>
                 <span>No. Expediente</span>
-                <span>Quejoso / Asunto</span>
-                <span>Materia</span>
+                <span className="t-col-hide">Quejoso / Asunto</span>
+                <span className="t-col-hide">Materia</span>
                 <span style={{ textAlign: 'right' }}>Estado</span>
               </div>
-
               {expedientes.length === 0 ? (
-                <div style={{ padding: '16px 18px', fontSize: 13, color: T.textMuted }}>
-                  Sin expedientes asignados.
+                <div style={{ padding: '28px 18px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, fontSize: 13, color: T.textMuted, textAlign: 'center' }}>
+                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" style={{ color: T.textFaint }}>
+                    <path d="M3 7a2 2 0 0 1 2-2h3.586a1 1 0 0 1 .707.293L11 7h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/>
+                  </svg>
+                  No hay expedientes asignados actualmente.
                 </div>
-              ) : (
-                expedientes.map((exp: any) => (
-                  <div key={exp.id} style={css.tablaFila}>
-                    <span style={{ fontWeight: 600, fontSize: 13, color: T.textPrimary }}>
-                      {exp.numero_expediente}
-                    </span>
-                    <span style={{ fontSize: 13, color: T.textMuted }}>
-                      {exp.quejoso ?? '—'}
-                    </span>
-                    <span>
-                      <MateriaChip nombre={exp.tipo_amparo ?? exp.materia ?? 'Amparo'} />
-                    </span>
-                    <span style={{ textAlign: 'right' }}>
-                      <EstadoChip estado={exp.estado_tramite ?? exp.estado ?? 'En trámite'} />
-                    </span>
-                  </div>
-                ))
-              )}
+              ) : expedientes.map((exp: any) => (
+                <div key={exp.id} className="t-fila">
+                  <span style={{ fontWeight: 600, fontSize: 13, color: T.textPrimary }}>{exp.numero_expediente}</span>
+                  <span className="t-col-hide" style={{ fontSize: 13, color: T.textMuted }}>{exp.quejoso ?? '—'}</span>
+                  <span className="t-col-hide"><MateriaChip nombre={exp.tipo_amparo ?? exp.materia ?? 'Amparo'} /></span>
+                  <span style={{ textAlign: 'right' }}><EstadoChip estado={exp.estado_tramite ?? exp.estado ?? 'En trámite'} /></span>
+                </div>
+              ))}
             </div>
           </div>
 
-          {/* Actividad reciente */}
-          <div style={css.card}>
-            <p style={css.sectionTitle}>Actividad reciente</p>
+          <div style={{ background: T.surface, border: `0.5px solid ${T.border}`, borderRadius: 12, padding: 20 }}>
+            <p style={{ fontSize: 13, fontWeight: 600, color: T.textPrimary, margin: '0 0 14px' }}>Actividad reciente</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               {actividad.length === 0 ? (
-                <span style={{ fontSize: 13, color: T.textMuted }}>
-                  Sin actividad registrada.
-                </span>
-              ) : (
-                actividad.map((act: any) => (
-                  <div key={act.id} style={css.logFila}>
-                    <span style={css.logDot} />
-                    <div>
-                      <div style={css.logTexto}>
-                        {act.descripcion ?? 'Realizó cambios en el sistema'}
-                      </div>
-                      <div style={css.logFecha}>{formatearFecha(act.created_at)}</div>
-                    </div>
+                <span style={{ fontSize: 13, color: T.textMuted }}>Sin registro de actividades recientes.</span>
+              ) : actividad.map((act: any) => (
+                <div key={act.id} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: T.accent, flexShrink: 0, marginTop: 5, display: 'inline-block' }} />
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 500, color: T.textPrimary }}>{act.descripcion ?? 'Realizó cambios en el sistema'}</div>
+                    <div style={{ fontSize: 12, color: T.textFaint, marginTop: 2 }}>{formatearFecha(act.created_at)}</div>
                   </div>
-                ))
-              )}
+                </div>
+              ))}
             </div>
           </div>
 
         </div>
       </div>
-    </div>
-  )
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 🧩 COMPONENTES
-// ─────────────────────────────────────────────────────────────────────────────
-function KpiCard({ label, value }: { label: string; value: number }) {
-  return (
-    <div style={css.kpiCard}>
-      <div style={css.kpiLabel}>{label}</div>
-      <div style={css.kpiValue}>{value}</div>
     </div>
   )
 }
@@ -212,310 +191,13 @@ function MateriaChip({ nombre }: { nombre: string }) {
     Penal:    { bg: T.redAlpha,    color: T.red },
     Amparo:   { bg: T.goldAlpha,   color: T.gold },
     Abogado:  { bg: T.accentAlpha, color: T.textAccent },
+    admin:    { bg: T.goldAlpha,   color: T.gold },
   }
   const s = map[nombre] ?? { bg: 'rgba(255,255,255,0.06)', color: T.textMuted }
-  return (
-    <span style={{
-      fontSize: 11, fontWeight: 600, padding: '3px 10px',
-      borderRadius: 20, background: s.bg, color: s.color,
-      display: 'inline-block',
-    }}>
-      {nombre}
-    </span>
-  )
+  return <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 20, background: s.bg, color: s.color, display: 'inline-block' }}>{nombre}</span>
 }
 
 function EstadoChip({ estado }: { estado: string }) {
   const esActivo = /activ/i.test(estado)
-  return (
-    <span style={{
-      fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 20,
-      display: 'inline-block',
-      background: esActivo ? T.greenAlpha : T.goldAlpha,
-      color:      esActivo ? T.green      : T.gold,
-    }}>
-      {estado}
-    </span>
-  )
+  return <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 20, display: 'inline-block', background: esActivo ? T.greenAlpha : T.goldAlpha, color: esActivo ? T.green : T.gold }}>{estado}</span>
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 🎨 ESTILOS
-// ─────────────────────────────────────────────────────────────────────────────
-const css = {
-  // ✅ Contenedor principal - SIN maxWidth, con width: 100%
-  root: {
-    width: '100%',
-    padding: 'clamp(20px, 4vw, 40px) clamp(16px, 4vw, 40px)',
-    boxSizing: 'border-box' as const,
-    display: 'flex',
-    flexDirection: 'column' as const,
-    gap: 20,
-  },
-
-  headerRow: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    flexWrap: 'wrap' as const,
-    gap: 10,
-  } as React.CSSProperties,
-
-  breadcrumb: {
-    fontSize: 12,
-    color: T.textMuted,
-    fontWeight: 500,
-  } as React.CSSProperties,
-
-  headerActions: {
-    display: 'flex',
-    gap: 10,
-  } as React.CSSProperties,
-
-  btnGhost: {
-    background: 'transparent',
-    border: `0.5px solid rgba(255,255,255,0.12)`,
-    borderRadius: 8,
-    padding: '7px 16px',
-    fontSize: 12,
-    fontWeight: 500,
-    color: T.textMuted,
-    cursor: 'pointer',
-    fontFamily: 'inherit',
-  } as React.CSSProperties,
-
-  btnPrimary: {
-    background: T.accent,
-    border: 'none',
-    borderRadius: 8,
-    padding: '7px 16px',
-    fontSize: 12,
-    fontWeight: 600,
-    color: '#fff',
-    cursor: 'pointer',
-    fontFamily: 'inherit',
-  } as React.CSSProperties,
-
-  titleRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 12,
-  } as React.CSSProperties,
-
-  btnBack: {
-    background: T.surface,
-    border: `0.5px solid rgba(255,255,255,0.12)`,
-    borderRadius: 8,
-    width: 34,
-    height: 34,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontSize: 14,
-    fontWeight: 700,
-    color: T.textPrimary,
-    cursor: 'pointer',
-    fontFamily: 'inherit',
-  } as React.CSSProperties,
-
-  heading: {
-    fontSize: 'clamp(18px, 2.5vw, 22px)',
-    fontWeight: 700,
-    margin: 0,
-    letterSpacing: '-0.5px',
-    color: T.textPrimary,
-  } as React.CSSProperties,
-
-  // ✅ Grid responsive: columna izquierda fija 280px, derecha ocupa el resto
-  grid: {
-    display: 'grid',
-    gridTemplateColumns: '280px minmax(0, 1fr)',
-    gap: 20,
-    alignItems: 'start',
-  } as React.CSSProperties,
-
-  // En pantallas pequeñas, pasan a una columna
-  '@media (max-width: 768px)': {
-    grid: {
-      gridTemplateColumns: '1fr',
-    },
-  } as any,
-
-  col: {
-    display: 'flex',
-    flexDirection: 'column' as const,
-    gap: 16,
-  },
-
-  card: {
-    background: T.surface,
-    border: `0.5px solid ${T.border}`,
-    borderRadius: 12,
-    padding: 20,
-  } as React.CSSProperties,
-
-  avatar: {
-    width: 60,
-    height: 60,
-    borderRadius: '50%',
-    background: T.accentAlpha,
-    border: `0.5px solid ${T.accentBorder}`,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontSize: 18,
-    fontWeight: 700,
-    color: T.textAccent,
-    margin: '0 auto 14px',
-  } as React.CSSProperties,
-
-  nombre: {
-    fontSize: 16,
-    fontWeight: 700,
-    color: T.textPrimary,
-    marginBottom: 4,
-  } as React.CSSProperties,
-
-  email: {
-    fontSize: 12,
-    color: T.textMuted,
-    marginBottom: 14,
-  } as React.CSSProperties,
-
-  estadoFila: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    marginTop: 14,
-    fontSize: 12,
-    color: T.textMuted,
-  } as React.CSSProperties,
-
-  dotVerde: {
-    width: 7,
-    height: 7,
-    borderRadius: '50%',
-    background: T.green,
-    display: 'inline-block',
-  } as React.CSSProperties,
-
-  sectionTitle: {
-    fontSize: 13,
-    fontWeight: 600,
-    color: T.textPrimary,
-    margin: '0 0 14px 0',
-  } as React.CSSProperties,
-
-  datumRow: {
-    display: 'flex',
-    flexDirection: 'column' as const,
-    gap: 3,
-    padding: '10px 0',
-    borderBottom: `0.5px solid ${T.border}`,
-  },
-
-  datumLabel: {
-    fontSize: 11,
-    fontWeight: 500,
-    color: T.textMuted,
-    letterSpacing: '0.05em',
-    textTransform: 'uppercase' as const,
-  },
-
-  datumVal: {
-    fontSize: 13,
-    fontWeight: 500,
-    color: T.textPrimary,
-  } as React.CSSProperties,
-
-  kpiGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(3, 1fr)',
-    gap: 12,
-  } as React.CSSProperties,
-
-  kpiCard: {
-    background: T.surface,
-    border: `0.5px solid ${T.border}`,
-    borderRadius: 12,
-    padding: '16px',
-    textAlign: 'center' as const,
-  },
-
-  kpiLabel: {
-    fontSize: 11,
-    fontWeight: 500,
-    color: T.textFaint,
-    letterSpacing: '0.05em',
-    textTransform: 'uppercase' as const,
-    marginBottom: 8,
-  } as React.CSSProperties,
-
-  kpiValue: {
-    fontSize: 32,
-    fontWeight: 700,
-    color: T.textPrimary,
-    letterSpacing: '-1px',
-    lineHeight: 1,
-  } as React.CSSProperties,
-
-  tabla: {
-    border: `0.5px solid ${T.border}`,
-    borderRadius: 10,
-    overflow: 'hidden',
-  } as React.CSSProperties,
-
-  // ✅ Columnas flexibles con minmax(0, ...)
-  tablaFila: {
-    display: 'grid',
-    gridTemplateColumns: 'minmax(0,1.2fr) minmax(0,1.2fr) 100px 100px',
-    padding: '11px 18px',
-    borderBottom: `0.5px solid ${T.border}`,
-    alignItems: 'center',
-    gap: 12,
-  } as React.CSSProperties,
-
-  tablaCabecera: {
-    fontSize: 11,
-    fontWeight: 500,
-    color: T.textFaint,
-    letterSpacing: '0.06em',
-    textTransform: 'uppercase' as const,
-    background: '#080b14',
-  },
-
-  logFila: {
-    display: 'flex',
-    gap: 12,
-    alignItems: 'flex-start',
-  } as React.CSSProperties,
-
-  logDot: {
-    width: 6,
-    height: 6,
-    borderRadius: '50%',
-    background: T.accent,
-    flexShrink: 0,
-    marginTop: 5,
-    display: 'inline-block',
-  } as React.CSSProperties,
-
-  logTexto: {
-    fontSize: 13,
-    fontWeight: 500,
-    color: T.textPrimary,
-  } as React.CSSProperties,
-
-  logFecha: {
-    fontSize: 12,
-    color: T.textFaint,
-    marginTop: 2,
-  } as React.CSSProperties,
-}
-
-// Añadir media query para responsive en el grid (se aplica con CSS-in-JS)
-// Como no podemos usar @media directamente en el objeto, se puede hacer con un estilo global o usando useMediaQuery.
-// Para simplificar, podemos usar gridTemplateColumns con auto-fit en lugar de fijo.
-// Pero mantengo la estructura y se puede ajustar con un estilo global adicional.
-// Para una solución completa, usaría un hook de media query, pero para este caso lo dejamos así.

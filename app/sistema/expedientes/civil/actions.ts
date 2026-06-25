@@ -23,7 +23,22 @@ export async function crearExpedienteCivilFamiliar(formData: FormData) {
     .select('id')
     .single()
 
-  if (errCliente || !cliente) return { error: 'Error al crear cliente' }
+  if (errCliente || !cliente) return { error: 'Error al crear cliente o el cliente ya existe' }
+
+  // 🔍 CORRECCIÓN: Separar Materia y Tipo de Juicio del select "materia_juicio_tipo"
+  const materiaJuicioTipo = formData.get('materia_juicio_tipo') as string // Ej: "Familiar|Divorcio voluntario"
+  let materiaNombre = ''
+  let tipoJuicio = ''
+
+  if (materiaJuicioTipo && materiaJuicioTipo.includes('|')) {
+    const partes = materiaJuicioTipo.split('|')
+    materiaNombre = partes[0] // "Familiar" o "Civil"
+    tipoJuicio = partes[1]    // "Divorcio voluntario", etc.
+  }
+
+  // Mapear el nombre de la materia al ID correspondiente en tu BD
+  // Ajusta estos IDs (1 y 2) según correspondan en tu tabla de materias
+  const materiaId = materiaNombre === 'Civil' ? 1 : 2 
 
   // 3. Insertar Expediente Base
   const { data: expediente, error: errExp } = await supabase
@@ -31,8 +46,8 @@ export async function crearExpedienteCivilFamiliar(formData: FormData) {
     .insert({
       numero_expediente: formData.get('numero_expediente') as string,
       fecha_inicio: (formData.get('fecha_inicio') as string) || null,
-      materia_id: Number(formData.get('materia_id')), // ID de Civil o Familiar
-      tipo_juicio: formData.get('tipo_juicio') as string, // Ej: 'Divorcio voluntario'
+      materia_id: materiaId, // 🌟 ID corregido
+      tipo_juicio: tipoJuicio || null, // 🌟 String corregido
       cliente_id: cliente.id,
       juzgado_id: Number(formData.get('juzgado_id')) || null,
       caracter_cliente: formData.get('rol_cliente') as string,
@@ -40,15 +55,21 @@ export async function crearExpedienteCivilFamiliar(formData: FormData) {
       ciudad: formData.get('ciudad') as string,
       descripcion: formData.get('descripcion') as string,
       creado_por: perfil?.id ?? null,
-      estado: formData.get('estado') as string || 'Activo',
+      estado: (formData.get('estado') as string) || 'Activo',
     })
     .select('id')
     .single()
 
-  if (errExp || !expediente) return { error: 'Error al crear expediente' }
+  if (errExp) {
+    console.error('Error de Supabase al crear expediente:', errExp) // Para que lo veas en tu terminal
+    return { error: `Error al crear expediente: ${errExp.message}` }
+  }
+  if (!expediente) return { error: 'Error inesperado: no se generó el expediente' }
 
   // 4. Asignar Abogado Responsable
-  const abogadoId = Number(formData.get('abogado_id')) || perfil?.id
+  const abogadoFormId = formData.get('abogado_id')
+  const abogadoId = abogadoFormId ? Number(abogadoFormId) : perfil?.id
+
   if (abogadoId) {
     await supabase.from('expediente_abogados').insert({
       expediente_id: expediente.id,
@@ -63,13 +84,14 @@ export async function crearExpedienteCivilFamiliar(formData: FormData) {
     const plazoOtorga = formData.get('plazo_otorgado') as string // Ej: '9 días hábiles'
     await supabase.from('tareas').insert({
       expediente_id: expediente.id,
-      asignado_a_usuario_id: abogadoId,
+      asignado_a_usuario_id: abogadoId || null,
       descripcion: `Vencimiento de término: ${plazoOtorga}`,
       fecha_vencimiento: fechaLimite,
       completada: false
     })
   }
 
-  revalidatePath('/expedientes/civil-familiar')
+  // 🌟 Verifica que esta ruta coincida exactamente con tu estructura de carpetas
+  revalidatePath('/sistema/expedientes/civil') 
   return { success: true }
 }
