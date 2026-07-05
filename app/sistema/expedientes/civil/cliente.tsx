@@ -1,17 +1,21 @@
 'use client'
 
 import { useState } from 'react'
-import { crearExpedienteCivilFamiliar } from './actions'
+import { useTema } from '@/app/sistema/layout'
+import { useExpedientes } from '@/hooks/useExpedientes'
+import { crearExpedienteCivilLocal, obtenerUsuarioLocalPorEmail } from '@/lib/dbHelpers'
+import { leerSesionLocal } from '@/lib/authLocal'
 
-// ─── Tokens (azul corporativo) ──────────────────────────────────────
-const ACCENT        = '#4a7fd4'
-const ACCENT_ALPHA  = 'rgba(74,127,212,0.10)'
-const ACCENT_BORDER = 'rgba(74,127,212,0.40)'
-
-const T = {
+// ─────────────────────────────────────────────────────────────────────────────
+// 🎨 TOKENS OSCUROS (Civil / Familiar – azul)
+// ─────────────────────────────────────────────────────────────────────────────
+const T_DARK = {
   surface:     '#0b1220',
   surfaceLow:  '#0f1828',
   border:      'rgba(255,255,255,0.05)',
+  accent:      '#4a7fd4',
+  accentAlpha: 'rgba(74,127,212,0.10)',
+  accentBorder:'rgba(74,127,212,0.40)',
   gold:        '#d4af37',
   goldAlpha:   'rgba(212,175,55,0.10)',
   green:       '#4ade80',
@@ -22,11 +26,36 @@ const T = {
   textPrimary: 'rgba(255,255,255,0.85)',
   textMuted:   'rgba(255,255,255,0.40)',
   textFaint:   'rgba(255,255,255,0.22)',
+  textAccent:  '#8fa8e0',
+  bg:          '#070b14',
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 🎨 TOKENS CLAROS (Civil / Familiar – azul adaptado)
+// ─────────────────────────────────────────────────────────────────────────────
+const T_LIGHT = {
+  surface:     '#ffffff',
+  surfaceLow:  '#f9fafb',
+  border:      'rgba(0,0,0,0.08)',
+  accent:      '#2b5fb0',
+  accentAlpha: 'rgba(43,95,176,0.08)',
+  accentBorder:'rgba(43,95,176,0.25)',
+  gold:        '#b8860b',
+  goldAlpha:   'rgba(184,134,11,0.08)',
+  green:       '#16a34a',
+  greenAlpha:  'rgba(22,163,74,0.06)',
+  red:         '#dc2626',
+  redAlpha:    'rgba(220,38,38,0.06)',
+  amber:       '#d97706',
+  textPrimary: 'rgba(0,0,0,0.85)',
+  textMuted:   'rgba(0,0,0,0.50)',
+  textFaint:   'rgba(0,0,0,0.30)',
+  textAccent:  '#1e3a8a',
+  bg:          '#f5f7fa',
 }
 
 type Juzgado = { id: number; nombre: string; ciudad: string; materia_id: number }
 type Abogado = { id: number; nombre_completo: string }
-// DESPUÉS
 type Materia = { id: number; nombre: string }
 
 export default function ClienteCivilFamiliar({
@@ -40,7 +69,26 @@ export default function ClienteCivilFamiliar({
   abogados: Abogado[]
   expedientes: any[]
 }) {
-  const [abierto,    setAbierto]    = useState(false)
+  const { oscuro } = useTema()
+  const T = oscuro ? T_DARK : T_LIGHT
+
+  // 🆕 Hook offline — misma firma que Penal
+  const {
+    expedientes: expedientesLocales,
+    isOnline,
+    syncing,
+    sincronizar,
+    recargar,
+  } = useExpedientes('expedientes_civiles')
+
+  // 🔧 FIX: mismo patrón que causasActivas en Penal, blindado contra undefined.
+  // isOnline arranca en `true` por defecto dentro de useTablaLocal (antes de
+  // confirmar la conexión real), y en ese instante la prop `expedientes` del
+  // server aún puede no haber llegado — de ahí el "Cannot read properties of
+  // undefined (reading 'filter')". El `?? []` evita el crash sin importar
+  // cuál de los dos lados venga undefined en el primer render.
+const expedientesActivos = (isOnline ? expedientes : expedientesLocales) ?? []  
+const [abierto,    setAbierto]    = useState(false)
   const [busqueda,   setBusqueda]   = useState('')
   const [filtroTab,  setFiltroTab]  = useState<'todos' | 'activos' | 'termino' | 'concluidos'>('todos')
   const [mensaje,    setMensaje]    = useState<string | null>(null)
@@ -56,7 +104,7 @@ export default function ClienteCivilFamiliar({
 
   const esActivo = (estado: string) => estado === 'Activo'
 
-  const filtrados = expedientes.filter(exp => {
+  const filtrados = expedientesActivos.filter(exp => {
     const term = busqueda.toLowerCase()
     const ok =
       exp.numero_expediente?.toLowerCase().includes(term) ||
@@ -71,22 +119,47 @@ export default function ClienteCivilFamiliar({
   })
 
   const cnt = {
-    todos:      expedientes.length,
-    activos:    expedientes.filter(e => esActivo(e.estado)).length,
-    concluidos: expedientes.filter(e => e.estado === 'Concluido').length,
-    termino:    expedientes.filter(e => esActivo(e.estado) && proxTermo(e.tareas) !== null).length,
+    todos:      expedientesActivos.length,
+    activos:    expedientesActivos.filter(e => esActivo(e.estado)).length,
+    concluidos: expedientesActivos.filter(e => e.estado === 'Concluido').length,
+    termino:    expedientesActivos.filter(e => esActivo(e.estado) && proxTermo(e.tareas) !== null).length,
   }
 
+  // 🔧 Migrado de Server Action a función local offline-first (mismo patrón que Penal)
   async function manejarSubmit(formData: FormData) {
     setError(null)
-    const r = await crearExpedienteCivilFamiliar(formData)
-    if (r?.error) { setError(r.error) }
-    else {
+    try {
+      const sesion = leerSesionLocal()
+      const usuarioLocal = sesion ? await obtenerUsuarioLocalPorEmail(sesion.email) : null
+
+      await crearExpedienteCivilLocal({
+        cliente_nombre:        formData.get('cliente_nombre') as string,
+        numero_expediente:     formData.get('numero_expediente') as string,
+        fecha_inicio:          formData.get('fecha_inicio') as string,
+        estado:                (formData.get('estado') as string) || 'Activo',
+        ciudad:                (formData.get('ciudad') as string) || 'Huejutla',
+        rol_cliente:           formData.get('rol_cliente') as string,
+        contraparte:           (formData.get('contraparte') as string) || null,
+        materia_juicio_tipo:   formData.get('materia_juicio_tipo') as string,
+        juzgado_id:            Number(formData.get('juzgado_id')) || null,
+        plazo_otorgado:        (formData.get('plazo_otorgado') as string) || null,
+        fecha_limite_termino:  (formData.get('fecha_limite_termino') as string) || null,
+        abogado_id:            Number(formData.get('abogado_id')) || null,
+        descripcion:           (formData.get('descripcion') as string) || null,
+      }, usuarioLocal?.id ?? null)
+
       setMensaje('Expediente registrado con éxito.')
       setAbierto(false)
       setTimeout(() => setMensaje(null), 3000)
+
+      if (isOnline) await sincronizar()
+      else await recargar()
+    } catch (e: any) {
+      setError(e?.message ?? 'Error al crear el expediente')
     }
   }
+
+  const s = getStyles(T, oscuro)
 
   return (
     <div style={s.root}>
@@ -97,7 +170,7 @@ export default function ClienteCivilFamiliar({
         .civ-form-row { flex-wrap: wrap; }
         .civ-col-form { flex: 1 1 220px; }
         .civ-busqueda-wrapper { flex: 1 1 200px; width: auto; }
-        .civ-desktop   { width: 100%; overflow-x: auto; }   /* ← Corregido */
+        .civ-desktop   { width: 100%; overflow-x: auto; }
 
         @media (max-width: 700px) {
           .civ-header   { flex-direction: column !important; align-items: stretch !important; gap: 12px !important; }
@@ -115,6 +188,9 @@ export default function ClienteCivilFamiliar({
         @media (min-width: 701px) {
           .civ-mobile  { display: none !important; }
         }
+
+        .civ-row:hover { background: ${oscuro ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)'}; }
+        .civ-row-link:hover { background: ${oscuro ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)'}; }
       `}</style>
 
       {/* ── ENCABEZADO ── */}
@@ -122,13 +198,28 @@ export default function ClienteCivilFamiliar({
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
           <h1 style={s.titulo}>Expedientes Civil / Familiar</h1>
           <p style={s.subtitulo}>
-            <span style={{ ...s.dot, background: ACCENT }} />
+            <span style={{ ...s.dot, background: T.accent }} />
             Gestión procesal
             &nbsp;·&nbsp;
             <strong style={{ color: T.textPrimary }}>{cnt.todos}</strong> registrados
+            &nbsp;·&nbsp;
+            <span style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              color: isOnline ? T.green : T.amber
+            }}>
+              <span style={{
+                width: 5, height: 5,
+                borderRadius: '50%',
+                background: isOnline ? T.green : T.amber,
+                display: 'inline-block'
+              }}/>
+              {syncing ? 'Sincronizando...' : isOnline ? 'En línea' : 'Sin conexión'}
+            </span>
           </p>
         </div>
-        <button onClick={() => setAbierto(true)} className="civ-btn-new" style={{ ...s.btnPrimario, background: ACCENT }}>
+        <button onClick={() => setAbierto(true)} className="civ-btn-new" style={{ ...s.btnPrimario, background: T.accent }}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M12 5v14M5 12h14" />
           </svg>
@@ -136,7 +227,7 @@ export default function ClienteCivilFamiliar({
         </button>
       </div>
 
-      {mensaje && <Alerta tipo="ok">{mensaje}</Alerta>}
+      {mensaje && <Alerta tipo="ok" oscuro={oscuro}>{mensaje}</Alerta>}
 
       {/* ── FILTROS ── */}
       <div className="civ-filtros" style={s.filtrosRow}>
@@ -210,13 +301,13 @@ export default function ClienteCivilFamiliar({
                           <div style={s.sub}>{exp.juzgados?.ciudad ?? ''}</div>
                         </td>
                         <td style={s.td}>
-                          <span style={{ ...s.pill, background: act ? T.greenAlpha : T.goldAlpha, color: act ? T.green : T.gold, border: `1px solid ${act ? 'rgba(74,222,128,0.25)' : 'rgba(212,175,55,0.25)'}` }}>
+                          <span style={{ ...s.pill, background: act ? T.greenAlpha : T.goldAlpha, color: act ? T.green : T.gold, border: `1px solid ${act ? T.green : T.gold}44` }}>
                             {exp.estado}
                           </span>
                         </td>
                         <td style={s.td}>
                           {!act ? (
-                            <span style={{ ...s.pill, background: T.goldAlpha, color: T.gold, border: '1px solid rgba(212,175,55,0.25)' }}>Concluido</span>
+                            <span style={{ ...s.pill, background: T.goldAlpha, color: T.gold, border: `1px solid ${T.gold}44` }}>Concluido</span>
                           ) : pt ? (
                             <span style={{ fontWeight: esH || venc ? 600 : 400, color: venc ? T.red : esH ? T.amber : T.textMuted, fontSize: 13 }}>
                               {venc ? '⚠ ' : esH ? '● ' : ''}{pt}
@@ -241,7 +332,7 @@ export default function ClienteCivilFamiliar({
                 const act  = esActivo(exp.estado)
                 return (
                   <a key={exp.id} href={`/sistema/expedientes/civil/detalle?id=${exp.id}`} className="civ-row-link" style={s.rowLink}>
-                    <div style={{ ...s.avatar, background: ACCENT_ALPHA, color: ACCENT }}>
+                    <div style={{ ...s.avatar, background: T.accentAlpha, color: T.accent }}>
                       <span style={{ fontSize: 16, fontWeight: 'bold' }}>CF</span>
                     </div>
                     <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' as const, gap: 1 }}>
@@ -269,14 +360,14 @@ export default function ClienteCivilFamiliar({
         )}
       </div>
 
-      {/* ── MODAL ── */}
+      {/* ── MODAL — centrado, con altura máxima y scroll interno ── */}
       {abierto && (
         <div style={s.overlay} onClick={() => setAbierto(false)}>
           <div style={s.modal} onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <h2 style={{ fontSize: 18, fontWeight: 700, color: T.textPrimary, margin: 0, letterSpacing: '-0.4px' }}>Nuevo Expediente Civil / Familiar</h2>
-                <p   style={{ fontSize: 12, color: T.textMuted, margin: 0 }}>Complete los campos procesales necesarios</p>
+            <div style={s.modalHeader}>
+              <div>
+                <h2 style={s.modalTitle}>Nuevo Expediente Civil / Familiar</h2>
+                <p style={s.modalSub}>Complete los campos procesales necesarios</p>
               </div>
               <button onClick={() => setAbierto(false)} style={s.btnCerrar} aria-label="Cerrar">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -285,125 +376,137 @@ export default function ClienteCivilFamiliar({
               </button>
             </div>
 
-            {error && <Alerta tipo="error">{error}</Alerta>}
+            {error && (
+              <div style={{ padding: '0 24px' }}>
+                <Alerta tipo="error" oscuro={oscuro}>{error}</Alerta>
+              </div>
+            )}
 
-            <form action={manejarSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <Seccion titulo="Datos generales" icono="📋">
-                <div className="civ-form-row" style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 10 }}>
-                  <div className="civ-col-form" style={{ flex: '1 1 200px' }}>
-                    <Campo label="Número de Expediente *">
-                      <input name="numero_expediente" required style={s.input} placeholder="Ej: 201-2025" />
-                    </Campo>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault()
+                manejarSubmit(new FormData(e.currentTarget))
+              }}
+              style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}
+            >
+              <div style={{ flex: 1, overflowY: 'auto', padding: '0 24px' }}>
+                <Seccion titulo="Datos generales" icono="📋" T={T} oscuro={oscuro}>
+                  <div className="civ-form-row" style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 10 }}>
+                    <div className="civ-col-form" style={{ flex: '1 1 200px' }}>
+                      <Campo label="Número de Expediente *" T={T}>
+                        <input name="numero_expediente" required style={s.input} placeholder="Ej: 201-2025" />
+                      </Campo>
+                    </div>
+                    <div className="civ-col-form" style={{ flex: '1 1 200px' }}>
+                      <Campo label="Fecha de inicio *" T={T}>
+                        <input name="fecha_inicio" type="date" required style={s.input} />
+                      </Campo>
+                    </div>
+                    <div className="civ-col-form" style={{ flex: '1 1 200px' }}>
+                      <Campo label="Estado" T={T}>
+                        <select name="estado" style={s.input} defaultValue="Activo">
+                          <option>Activo</option>
+                          <option>Concluido</option>
+                        </select>
+                      </Campo>
+                    </div>
+                    <div className="civ-col-form" style={{ flex: '1 1 200px' }}>
+                      <Campo label="Ciudad *" T={T}>
+                        <select name="ciudad" required style={s.input} defaultValue="Huejutla">
+                          <option>Huejutla</option>
+                          <option>Pachuca</option>
+                          <option>Otra</option>
+                        </select>
+                      </Campo>
+                    </div>
                   </div>
-                  <div className="civ-col-form" style={{ flex: '1 1 200px' }}>
-                    <Campo label="Fecha de inicio *">
-                      <input name="fecha_inicio" type="date" required style={s.input} />
-                    </Campo>
-                  </div>
-                  <div className="civ-col-form" style={{ flex: '1 1 200px' }}>
-                    <Campo label="Estado">
-                      <select name="estado" style={s.input} defaultValue="Activo">
-                        <option>Activo</option>
-                        <option>Concluido</option>
-                      </select>
-                    </Campo>
-                  </div>
-                  <div className="civ-col-form" style={{ flex: '1 1 200px' }}>
-                    <Campo label="Ciudad *">
-                      <select name="ciudad" required style={s.input} defaultValue="Huejutla">
-                        <option>Huejutla</option>
-                        <option>Pachuca</option>
-                        <option>Otra</option>
-                      </select>
-                    </Campo>
-                  </div>
-                </div>
-              </Seccion>
+                </Seccion>
 
-              <Seccion titulo="Partes" icono="👥">
-                <div className="civ-form-row" style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 10 }}>
-                  <div className="civ-col-form" style={{ flex: '1 1 200px' }}>
-                    <Campo label="Cliente *">
-                      <input name="cliente_nombre" required style={s.input} placeholder="Nombre completo" />
-                    </Campo>
+                <Seccion titulo="Partes" icono="👥" T={T} oscuro={oscuro}>
+                  <div className="civ-form-row" style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 10 }}>
+                    <div className="civ-col-form" style={{ flex: '1 1 200px' }}>
+                      <Campo label="Cliente *" T={T}>
+                        <input name="cliente_nombre" required style={s.input} placeholder="Nombre completo" />
+                      </Campo>
+                    </div>
+                    <div className="civ-col-form" style={{ flex: '1 1 200px' }}>
+                      <Campo label="Carácter *" T={T}>
+                        <select name="rol_cliente" required style={s.input} defaultValue="Demandante">
+                          <option>Demandante</option>
+                          <option>Demandado</option>
+                          <option>Tercero interesado</option>
+                        </select>
+                      </Campo>
+                    </div>
+                    <div className="civ-col-form" style={{ flex: '1 1 200px' }}>
+                      <Campo label="Contraparte" T={T}>
+                        <input name="contraparte" style={s.input} placeholder="Nombre de la parte contraria" />
+                      </Campo>
+                    </div>
                   </div>
-                  <div className="civ-col-form" style={{ flex: '1 1 200px' }}>
-                    <Campo label="Carácter *">
-                      <select name="rol_cliente" required style={s.input} defaultValue="Demandante">
-                        <option>Demandante</option>
-                        <option>Demandado</option>
-                        <option>Tercero interesado</option>
-                      </select>
-                    </Campo>
-                  </div>
-                  <div className="civ-col-form" style={{ flex: '1 1 200px' }}>
-                    <Campo label="Contraparte">
-                      <input name="contraparte" style={s.input} placeholder="Nombre de la parte contraria" />
-                    </Campo>
-                  </div>
-                </div>
-              </Seccion>
+                </Seccion>
 
-              <Seccion titulo="Información procesal" icono="⚖️">
-                <div className="civ-form-row" style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 10 }}>
-                  <div className="civ-col-form" style={{ flex: '1 1 200px' }}>
-                    <Campo label="Materia / Tipo de juicio *">
-                      <select name="materia_juicio_tipo" required style={s.input} defaultValue="">
-                        <option value="" disabled>Seleccionar...</option>
-                        <option value="Familiar|Divorcio voluntario">Familiar — Divorcio voluntario</option>
-                        <option value="Familiar|Pensión alimenticia">Familiar — Pensión alimenticia</option>
-                        <option value="Familiar|Guarda y custodia">Familiar — Guarda y custodia</option>
-                        <option value="Civil|Sucesión testamentaria">Civil — Sucesión testamentaria</option>
-                        <option value="Civil|Juicio Ordinario Civil">Civil — Juicio Ordinario Civil</option>
-                      </select>
-                    </Campo>
+                <Seccion titulo="Información procesal" icono="⚖️" T={T} oscuro={oscuro}>
+                  <div className="civ-form-row" style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 10 }}>
+                    <div className="civ-col-form" style={{ flex: '1 1 200px' }}>
+                      <Campo label="Materia / Tipo de juicio *" T={T}>
+                        <select name="materia_juicio_tipo" required style={s.input} defaultValue="">
+                          <option value="" disabled>Seleccionar...</option>
+                          <option value="Familiar|Divorcio voluntario">Familiar — Divorcio voluntario</option>
+                          <option value="Familiar|Pensión alimenticia">Familiar — Pensión alimenticia</option>
+                          <option value="Familiar|Guarda y custodia">Familiar — Guarda y custodia</option>
+                          <option value="Civil|Sucesión testamentaria">Civil — Sucesión testamentaria</option>
+                          <option value="Civil|Juicio Ordinario Civil">Civil — Juicio Ordinario Civil</option>
+                        </select>
+                      </Campo>
+                    </div>
+                    <div className="civ-col-form" style={{ flex: '1 1 200px' }}>
+                      <Campo label="Juzgado *" T={T}>
+                        <select name="juzgado_id" required style={s.input} defaultValue="">
+                          <option value="" disabled>Seleccionar juzgado...</option>
+                          {juzgados.map((j) => (
+                            <option key={j.id} value={j.id}>{j.nombre} ({j.ciudad})</option>
+                          ))}
+                        </select>
+                      </Campo>
+                    </div>
+                    <div className="civ-col-form" style={{ flex: '1 1 200px' }}>
+                      <Campo label="Próximo término (plazo)" T={T}>
+                        <select name="plazo_otorgado" style={s.input} defaultValue="">
+                          <option value="">Ninguno</option>
+                          <option>3 días hábiles</option>
+                          <option>5 días hábiles</option>
+                          <option>9 días hábiles</option>
+                          <option>15 días hábiles</option>
+                        </select>
+                      </Campo>
+                    </div>
+                    <div className="civ-col-form" style={{ flex: '1 1 200px' }}>
+                      <Campo label="Fecha límite del término" T={T}>
+                        <input name="fecha_limite_termino" type="date" style={s.input} />
+                      </Campo>
+                    </div>
+                    <div className="civ-col-form" style={{ flex: '1 1 200px' }}>
+                      <Campo label="Abogado responsable" T={T}>
+                        <select name="abogado_id" style={s.input} defaultValue="">
+                          <option value="">Sin asignar</option>
+                          {abogados.map((a) => (
+                            <option key={a.id} value={a.id}>{a.nombre_completo}</option>
+                          ))}
+                        </select>
+                      </Campo>
+                    </div>
                   </div>
-                  <div className="civ-col-form" style={{ flex: '1 1 200px' }}>
-                    <Campo label="Juzgado *">
-                      <select name="juzgado_id" required style={s.input} defaultValue="">
-                        <option value="" disabled>Seleccionar juzgado...</option>
-                        {juzgados.map((j) => (
-                          <option key={j.id} value={j.id}>{j.nombre} ({j.ciudad})</option>
-                        ))}
-                      </select>
-                    </Campo>
-                  </div>
-                  <div className="civ-col-form" style={{ flex: '1 1 200px' }}>
-                    <Campo label="Próximo término (plazo)">
-                      <select name="plazo_otorgado" style={s.input} defaultValue="">
-                        <option value="">Ninguno</option>
-                        <option>3 días hábiles</option>
-                        <option>5 días hábiles</option>
-                        <option>9 días hábiles</option>
-                        <option>15 días hábiles</option>
-                      </select>
-                    </Campo>
-                  </div>
-                  <div className="civ-col-form" style={{ flex: '1 1 200px' }}>
-                    <Campo label="Fecha límite del término">
-                      <input name="fecha_limite_termino" type="date" style={s.input} />
-                    </Campo>
-                  </div>
-                  <div className="civ-col-form" style={{ flex: '1 1 200px' }}>
-                    <Campo label="Abogado responsable">
-                      <select name="abogado_id" style={s.input} defaultValue="">
-                        <option value="">Sin asignar</option>
-                        {abogados.map((a) => (
-                          <option key={a.id} value={a.id}>{a.nombre_completo}</option>
-                        ))}
-                      </select>
-                    </Campo>
-                  </div>
-                </div>
-                <Campo label="Descripción / Observaciones">
-                  <textarea name="descripcion" rows={3} style={s.textarea}
-                    placeholder="Anotaciones o estado inicial del juicio..." />
-                </Campo>
-              </Seccion>
+                  <Campo label="Descripción / Observaciones" T={T}>
+                    <textarea name="descripcion" rows={3} style={s.textarea}
+                      placeholder="Anotaciones o estado inicial del juicio..." />
+                  </Campo>
+                </Seccion>
+              </div>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, paddingTop: 10, borderTop: `1px solid ${T.border}` }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '16px 24px', borderTop: `1px solid ${T.border}` }}>
                 <button type="button" onClick={() => setAbierto(false)} style={s.btnSec}>Cancelar</button>
-                <button type="submit" style={{ ...s.btnPrimario, background: ACCENT }}>Guardar expediente</button>
+                <button type="submit" style={{ ...s.btnPrimario, background: T.accent }}>Guardar expediente</button>
               </div>
             </form>
           </div>
@@ -413,15 +516,15 @@ export default function ClienteCivilFamiliar({
   )
 }
 
-// ─── Sub-componentes ──────────────────────────────────────────────────
-function Alerta({ tipo, children }: { tipo: 'ok' | 'error'; children: React.ReactNode }) {
+// ─── Sub-componentes adaptados al tema ─────────────────────────────────
+function Alerta({ tipo, oscuro, children }: { tipo: 'ok' | 'error'; oscuro: boolean; children: React.ReactNode }) {
   const ok = tipo === 'ok'
   return (
     <div style={{
       display: 'flex', alignItems: 'center', gap: 8,
-      color:      ok ? '#4ade80' : '#b3434f',
-      background: ok ? 'rgba(74,222,128,0.08)' : 'rgba(179,67,79,0.10)',
-      border:     `1px solid ${ok ? 'rgba(74,222,128,0.15)' : 'rgba(179,67,79,0.20)'}`,
+      color:      ok ? '#16a34a' : '#dc2626',
+      background: ok ? (oscuro ? 'rgba(74,222,128,0.08)' : 'rgba(22,163,74,0.06)') : (oscuro ? 'rgba(179,67,79,0.10)' : 'rgba(220,38,38,0.06)'),
+      border:     `1px solid ${ok ? (oscuro ? 'rgba(74,222,128,0.15)' : 'rgba(22,163,74,0.15)') : (oscuro ? 'rgba(179,67,79,0.20)' : 'rgba(220,38,38,0.15)')}`,
       padding: '8px 12px', borderRadius: 6, fontSize: 12.5, fontWeight: 500, marginBottom: 12,
     }}>
       {children}
@@ -429,10 +532,21 @@ function Alerta({ tipo, children }: { tipo: 'ok' | 'error'; children: React.Reac
   )
 }
 
-function Seccion({ titulo, icono, children }: { titulo: string; icono: string; children: React.ReactNode }) {
+function Seccion({ titulo, icono, T, oscuro, children }: { titulo: string; icono: string; T: typeof T_DARK; oscuro: boolean; children: React.ReactNode }) {
   return (
-    <div style={{ border: `1px solid rgba(255,255,255,0.06)`, borderRadius: 8, padding: '12px 14px', background: '#0b1220' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, fontWeight: 600, color: 'rgba(255,255,255,0.40)', marginBottom: 10 }}>
+    <div style={{
+      border: `1px solid ${T.border}`,
+      borderRadius: 8,
+      padding: '16px',
+      background: T.surfaceLow,
+      marginBottom: 16,
+    }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 6,
+        fontSize: 11.5, fontWeight: 600,
+        color: T.textMuted,
+        marginBottom: 14,
+      }}>
         <span>{icono}</span>{titulo}
       </div>
       {children}
@@ -440,17 +554,17 @@ function Seccion({ titulo, icono, children }: { titulo: string; icono: string; c
   )
 }
 
-function Campo({ label, children }: { label: string; children: React.ReactNode }) {
+function Campo({ label, T, children }: { label: string; T: typeof T_DARK; children: React.ReactNode }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <label style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.40)' }}>{label}</label>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8 }}>
+      <label style={{ fontSize: 11, fontWeight: 600, color: T.textMuted }}>{label}</label>
       {children}
     </div>
   )
 }
 
-// ─── Estilos (estructura Amparos, acento azul) ────────────────────────
-const s = {
+// ─── Función generadora de estilos dinámica ────────────────────────────
+const getStyles = (T: typeof T_DARK, oscuro: boolean) => ({
   root: {
     width: '100%',
     padding: '16px 12px',
@@ -465,7 +579,7 @@ const s = {
     marginBottom: 16,
   },
   titulo: {
-    fontSize: '20px',
+    fontSize: 'clamp(18px, 5vw, 24px)',
     fontWeight: 700,
     color: T.textPrimary,
     margin: 0,
@@ -512,10 +626,11 @@ const s = {
     width: 28, height: 28,
     border: `1px solid ${T.border}`,
     borderRadius: 6,
-    background: '#0f1828',
+    background: T.surfaceLow,
     color: T.textMuted,
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     cursor: 'pointer',
+    flexShrink: 0,
   } as React.CSSProperties,
   filtrosRow: {
     display: 'flex',
@@ -533,7 +648,7 @@ const s = {
   searchInput: {
     width: '100%',
     padding: '8px 10px 8px 30px',
-    background: '#0f1828',
+    background: T.surfaceLow,
     border: `1px solid ${T.border}`,
     borderRadius: 6,
     color: T.textPrimary,
@@ -542,9 +657,9 @@ const s = {
   } as React.CSSProperties,
   tab: (activo: boolean): React.CSSProperties => ({
     padding: '6px 12px',
-    background: activo ? ACCENT_ALPHA : 'transparent',
-    color:      activo ? ACCENT : T.textMuted,
-    border:     `1px solid ${activo ? ACCENT_BORDER : T.border}`,
+    background: activo ? T.accentAlpha : 'transparent',
+    color:      activo ? T.accent : T.textMuted,
+    border:     `1px solid ${activo ? T.accentBorder : T.border}`,
     borderRadius: 6,
     cursor: 'pointer',
     fontSize: 12,
@@ -579,7 +694,7 @@ const s = {
     letterSpacing: '0.04em',
     textTransform: 'uppercase' as const,
     textAlign: 'left' as const,
-    background: '#0f1828',
+    background: T.surfaceLow,
     borderBottom: `1px solid ${T.border}`,
   },
   td: {
@@ -609,32 +724,54 @@ const s = {
     fontWeight: 600,
     color: T.textPrimary,
   } as React.CSSProperties,
+  // ✅ Overlay: padding para que el modal nunca toque los bordes
   overlay: {
     position: 'fixed' as const,
     inset: 0,
-    background: 'rgba(6,10,18,0.8)',
+    background: oscuro ? 'rgba(6,10,18,0.8)' : 'rgba(0,0,0,0.4)',
     backdropFilter: 'blur(4px)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: '12px',
+    padding: '12px', // margen alrededor del modal
     zIndex: 200,
   },
+  // ✅ Modal: siempre tiene un ancho y alto máximos, con scroll interno
   modal: {
     background: T.surface,
     border: `1px solid ${T.border}`,
-    borderRadius: 10,
-    padding: '16px',
+    borderRadius: 12,
     width: '100%',
-    maxWidth: 500,
+    maxWidth: 600,
+    maxHeight: '90vh', // nunca ocupa toda la pantalla
     display: 'flex',
     flexDirection: 'column' as const,
-    gap: 12,
+    overflow: 'hidden',
+    boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)',
   },
+  modalHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 12,
+    padding: '24px 24px 0',
+    flexShrink: 0,
+  } as React.CSSProperties,
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 700,
+    color: T.textPrimary,
+    margin: 0,
+  } as React.CSSProperties,
+  modalSub: {
+    fontSize: 12,
+    color: T.textMuted,
+    margin: 0,
+  } as React.CSSProperties,
   input: {
     width: '100%',
-    padding: '8px 10px',
-    background: '#0f1828',
+    padding: '10px 12px',
+    background: T.surfaceLow,
     border: `1px solid ${T.border}`,
     borderRadius: 6,
     color: T.textPrimary,
@@ -644,8 +781,8 @@ const s = {
   } as React.CSSProperties,
   textarea: {
     width: '100%',
-    padding: '8px 10px',
-    background: '#0f1828',
+    padding: '10px 12px',
+    background: T.surfaceLow,
     border: `1px solid ${T.border}`,
     borderRadius: 6,
     color: T.textPrimary,
@@ -654,4 +791,4 @@ const s = {
     boxSizing: 'border-box' as const,
     resize: 'vertical' as const,
   } as React.CSSProperties,
-}
+})
