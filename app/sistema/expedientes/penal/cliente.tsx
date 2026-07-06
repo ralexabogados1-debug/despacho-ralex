@@ -1,17 +1,19 @@
 'use client'
 
 import { useState } from 'react'
-import { crearCausaPenal } from './actions'
+import { useTema } from '@/app/sistema/layout'
+import { useExpedientes } from '@/hooks/useExpedientes'
+import { crearCausaPenalLocal, obtenerUsuarioLocalPorEmail } from '@/lib/dbHelpers'
+import { leerSesionLocal } from '@/lib/authLocal'
 
-// ─── Tokens (rojo vino para Penal) ────────────────────────────────────────
-const ACCENT        = '#b3434f'
-const ACCENT_ALPHA  = 'rgba(179,67,79,0.10)'
-const ACCENT_BORDER = 'rgba(179,67,79,0.40)'
-
-const T = {
+// ─── Tokens OSCUROS (Penal – rojo vino) ─────────────────────────────────
+const T_DARK = {
   surface:     '#0b1220',
   surfaceLow:  '#0f1828',
   border:      'rgba(255,255,255,0.05)',
+  accent:      '#b3434f',
+  accentAlpha: 'rgba(179,67,79,0.10)',
+  accentBorder:'rgba(179,67,79,0.40)',
   gold:        '#d4af37',
   goldAlpha:   'rgba(212,175,55,0.10)',
   green:       '#4ade80',
@@ -22,6 +24,28 @@ const T = {
   textPrimary: 'rgba(255,255,255,0.85)',
   textMuted:   'rgba(255,255,255,0.40)',
   textFaint:   'rgba(255,255,255,0.22)',
+  bg:          '#070b14',
+}
+
+// ─── Tokens CLAROS (Penal – rojo vino adaptado) ─────────────────────────
+const T_LIGHT = {
+  surface:     '#ffffff',
+  surfaceLow:  '#f9fafb',
+  border:      'rgba(0,0,0,0.08)',
+  accent:      '#b91c1c',
+  accentAlpha: 'rgba(185,28,28,0.08)',
+  accentBorder:'rgba(185,28,28,0.25)',
+  gold:        '#b8860b',
+  goldAlpha:   'rgba(184,134,11,0.08)',
+  green:       '#16a34a',
+  greenAlpha:  'rgba(22,163,74,0.06)',
+  red:         '#dc2626',
+  redAlpha:    'rgba(220,38,38,0.06)',
+  amber:       '#d97706',
+  textPrimary: 'rgba(0,0,0,0.85)',
+  textMuted:   'rgba(0,0,0,0.50)',
+  textFaint:   'rgba(0,0,0,0.30)',
+  bg:          '#f5f7fa',
 }
 
 type Juez    = { id: number; nombre: string }
@@ -36,6 +60,19 @@ export default function ClienteCausasPenales({
   abogados:    Abogado[]
   causas:      any[]
 }) {
+  const { oscuro } = useTema()
+  const {
+    expedientes: causasLocales,
+    isOnline,
+    syncing,
+    sincronizar,
+    recargar,
+  } = useExpedientes('expedientes_penales')
+
+  const causasActivas = isOnline ? causas : causasLocales
+
+  const T = oscuro ? T_DARK : T_LIGHT
+
   const [abierto,    setAbierto]    = useState(false)
   const [busqueda,   setBusqueda]   = useState('')
   const [filtroTab,  setFiltroTab]  = useState<'todos' | 'activos' | 'termino' | 'concluidos'>('todos')
@@ -52,7 +89,7 @@ export default function ClienteCausasPenales({
 
   const esActivo = (estado: string) => estado === 'Activo'
 
-  const filtrados = causas.filter(c => {
+  const filtrados = causasActivas.filter(c => {
     const penal = c.expedientes_penales?.[0] ?? {}
     const term  = busqueda.toLowerCase()
     const ok =
@@ -69,22 +106,47 @@ export default function ClienteCausasPenales({
   })
 
   const cnt = {
-    todos:      causas.length,
-    activos:    causas.filter(c => esActivo(c.estado)).length,
-    concluidos: causas.filter(c => c.estado === 'Concluido').length,
-    termino:    causas.filter(c => esActivo(c.estado) && proxTermo(c.tareas) !== null).length,
+    todos:      causasActivas.length,
+    activos:    causasActivas.filter(c => esActivo(c.estado)).length,
+    concluidos: causasActivas.filter(c => c.estado === 'Concluido').length,
+    termino:    causasActivas.filter(c => esActivo(c.estado) && proxTermo(c.tareas) !== null).length,
   }
 
   async function manejarSubmit(formData: FormData) {
     setError(null)
-    const r = await crearCausaPenal(formData)
-    if (r?.error) { setError(r.error) }
-    else {
+    try {
+      const sesion = leerSesionLocal()
+      const usuarioLocal = sesion ? await obtenerUsuarioLocalPorEmail(sesion.email) : null
+
+      await crearCausaPenalLocal({
+        cliente_nombre: formData.get('cliente_nombre') as string,
+        numero_causa:   formData.get('numero_causa') as string,
+        numero_carpeta: (formData.get('numero_carpeta') as string) || null,
+        delito:         formData.get('delito') as string,
+        etapa_procesal: formData.get('etapa_procesal') as string,
+        fecha_inicio:   formData.get('fecha_inicio') as string,
+        estado:         (formData.get('estado') as string) || 'Activo',
+        rol_cliente:    formData.get('rol_cliente') as string,
+        rol_abogado:    formData.get('rol_abogado') as string,
+        contraparte:    (formData.get('contraparte') as string) || null,
+        juez_id:        Number(formData.get('juez_id')) || null,
+        mp_id:          Number(formData.get('mp_id')) || null,
+        abogado_id:     Number(formData.get('abogado_id')) || null,
+        descripcion:    (formData.get('descripcion') as string) || null,
+      }, usuarioLocal?.id ?? null)
+
       setMensaje('Causa penal creada correctamente.')
       setAbierto(false)
       setTimeout(() => setMensaje(null), 3000)
+
+      if (isOnline) await sincronizar()
+      else await recargar()
+    } catch (e: any) {
+      setError(e?.message ?? 'Error al crear la causa')
     }
   }
+
+  const s = getStyles(T, oscuro)
 
   return (
     <div style={s.root}>
@@ -92,8 +154,8 @@ export default function ClienteCausasPenales({
         .pen-header   { flex-direction: row; }
         .pen-btn-new  { width: auto; }
         .pen-filtros  { flex-direction: row; }
-        .pen-form-row { flex-wrap: wrap; }
-        .pen-col-form { flex: 1 1 220px; }
+        .pen-form-row { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
+        .pen-col-form { flex: 1 1 200px; min-width: 180px; }
         .pen-busqueda-wrapper { flex: 1 1 200px; width: auto; }
 
         @media (max-width: 700px) {
@@ -103,7 +165,8 @@ export default function ClienteCausasPenales({
           .pen-busqueda-wrapper { width: 100% !important; flex: none !important; }
           .pen-tabs     { width: 100% !important; justify-content: flex-start !important; }
           .pen-tabs button { flex: 1 1 auto; text-align: center; justify-content: center; }
-          .pen-col-form { flex: 1 1 100% !important; }
+          .pen-col-form { flex: 1 1 100% !important; min-width: 100% !important; }
+          .pen-form-row { gap: 10px !important; }
           
           .pen-desktop { display: none !important; }
           .pen-mobile  { display: flex !important; }
@@ -112,6 +175,9 @@ export default function ClienteCausasPenales({
         @media (min-width: 701px) {
           .pen-mobile  { display: none !important; }
         }
+
+        .pen-row:hover { background: ${oscuro ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)'}; }
+        .pen-row-link:hover { background: ${oscuro ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)'}; }
       `}</style>
 
       {/* ── ENCABEZADO ── */}
@@ -119,13 +185,28 @@ export default function ClienteCausasPenales({
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
           <h1 style={s.titulo}>Causas Penales</h1>
           <p style={s.subtitulo}>
-            <span style={{ ...s.dot, background: ACCENT }} />
+            <span style={{ ...s.dot, background: T.accent }} />
             Gestión en materia penal
             &nbsp;·&nbsp;
             <strong style={{ color: T.textPrimary }}>{cnt.todos}</strong> registradas
+            &nbsp;·&nbsp;
+            <span style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              color: isOnline ? T.green : T.amber
+            }}>
+              <span style={{
+                width: 5, height: 5,
+                borderRadius: '50%',
+                background: isOnline ? T.green : T.amber,
+                display: 'inline-block'
+              }}/>
+              {syncing ? 'Sincronizando...' : isOnline ? 'En línea' : 'Sin conexión'}
+            </span>
           </p>
         </div>
-        <button onClick={() => setAbierto(true)} className="pen-btn-new" style={{ ...s.btnPrimario, background: ACCENT }}>
+        <button onClick={() => setAbierto(true)} className="pen-btn-new" style={{ ...s.btnPrimario, background: T.accent }}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M12 5v14M5 12h14" />
           </svg>
@@ -133,7 +214,7 @@ export default function ClienteCausasPenales({
         </button>
       </div>
 
-      {mensaje && <Alerta tipo="ok">{mensaje}</Alerta>}
+      {mensaje && <Alerta tipo="ok" oscuro={oscuro}>{mensaje}</Alerta>}
 
       {/* ── FILTROS ── */}
       <div className="pen-filtros" style={s.filtrosRow}>
@@ -176,7 +257,7 @@ export default function ClienteCausasPenales({
         ) : (
           <>
             {/* Desktop */}
-            <div className="pen-desktop" style={{ overflowX: 'auto' }}>
+            <div className="pen-desktop">
               <table style={s.table}>
                 <thead>
                   <tr>
@@ -211,13 +292,13 @@ export default function ClienteCausasPenales({
                           <div style={s.sub}>{penal.ministerios_publicos?.nombre_agencia ?? 'Sin MP'}</div>
                         </td>
                         <td style={s.td}>
-                          <span style={{ ...s.pill, background: act ? T.greenAlpha : T.goldAlpha, color: act ? T.green : T.gold, border: `1px solid ${act ? 'rgba(74,222,128,0.25)' : 'rgba(212,175,55,0.25)'}` }}>
+                          <span style={{ ...s.pill, background: act ? T.greenAlpha : T.goldAlpha, color: act ? T.green : T.gold, border: `1px solid ${act ? T.green : T.gold}44` }}>
                             {c.estado}
                           </span>
                         </td>
                         <td style={s.td}>
                           {!act ? (
-                            <span style={{ ...s.pill, background: T.goldAlpha, color: T.gold, border: '1px solid rgba(212,175,55,0.25)' }}>Concluido</span>
+                            <span style={{ ...s.pill, background: T.goldAlpha, color: T.gold, border: `1px solid ${T.gold}44` }}>Concluido</span>
                           ) : pt ? (
                             <span style={{ fontWeight: esH || venc ? 600 : 400, color: venc ? T.red : esH ? T.amber : T.textMuted, fontSize: 13 }}>
                               {venc ? '⚠ ' : esH ? '● ' : ''}{pt}
@@ -243,7 +324,7 @@ export default function ClienteCausasPenales({
                 const act   = esActivo(c.estado)
                 return (
                   <a key={c.id} href={`/sistema/expedientes/penal/detalle?id=${c.id}`} className="pen-row-link" style={s.rowLink}>
-                    <div style={{ ...s.avatar, background: ACCENT_ALPHA, color: ACCENT }}>
+                    <div style={{ ...s.avatar, background: T.accentAlpha, color: T.accent }}>
                       <span style={{ fontSize: 16, fontWeight: 'bold' }}>P</span>
                     </div>
                     <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' as const, gap: 1 }}>
@@ -271,14 +352,14 @@ export default function ClienteCausasPenales({
         )}
       </div>
 
-      {/* ── MODAL ── */}
+      {/* ── MODAL MEJORADO – centrado, con márgenes ── */}
       {abierto && (
         <div style={s.overlay} onClick={() => setAbierto(false)}>
           <div style={s.modal} onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <h2 style={{ fontSize: 18, fontWeight: 700, color: T.textPrimary, margin: 0, letterSpacing: '-0.4px' }}>Nueva Causa Penal</h2>
-                <p   style={{ fontSize: 12, color: T.textMuted, margin: 0 }}>Complete los campos para el registro del caso</p>
+            <div style={s.modalHeader}>
+              <div>
+                <h2 style={s.modalTitle}>Nueva Causa Penal</h2>
+                <p style={s.modalSub}>Complete los campos para el registro del caso</p>
               </div>
               <button onClick={() => setAbierto(false)} style={s.btnCerrar} aria-label="Cerrar">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -287,134 +368,142 @@ export default function ClienteCausasPenales({
               </button>
             </div>
 
-            {error && <Alerta tipo="error">{error}</Alerta>}
+            {error && <Alerta tipo="error" oscuro={oscuro}>{error}</Alerta>}
 
-            <form action={manejarSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <Seccion titulo="Información de la causa" icono="📋">
-                <div className="pen-form-row" style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 10 }}>
-                  <div className="pen-col-form" style={{ flex: '1 1 200px' }}>
-                    <Campo label="Número de causa *">
-                      <input name="numero_causa" required style={s.input} placeholder="Ej: 118-2025" />
-                    </Campo>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault()
+                manejarSubmit(new FormData(e.currentTarget))
+              }}
+              style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}
+            >
+              <div style={{ flex: 1, overflowY: 'auto', padding: '0 24px' }}>
+                <Seccion titulo="Información de la causa" icono="📋" T={T} oscuro={oscuro}>
+                  <div className="pen-form-row">
+                    <div className="pen-col-form">
+                      <Campo label="Número de causa *" T={T}>
+                        <input name="numero_causa" required style={s.input} placeholder="Ej: 118-2025" />
+                      </Campo>
+                    </div>
+                    <div className="pen-col-form">
+                      <Campo label="No. Carpeta de Investigación" T={T}>
+                        <input name="numero_carpeta" style={s.input} placeholder="Ej: 05-20-26" />
+                      </Campo>
+                    </div>
+                    <div className="pen-col-form">
+                      <Campo label="Delito *" T={T}>
+                        <input name="delito" required style={s.input} placeholder="Ej: Robo con violencia" />
+                      </Campo>
+                    </div>
+                    <div className="pen-col-form">
+                      <Campo label="Etapa procesal *" T={T}>
+                        <select name="etapa_procesal" required style={s.input} defaultValue="">
+                          <option value="" disabled>Seleccionar...</option>
+                          <option>Inicial</option>
+                          <option>Intermedia</option>
+                          <option>Juicio</option>
+                        </select>
+                      </Campo>
+                    </div>
+                    <div className="pen-col-form">
+                      <Campo label="Fecha de inicio *" T={T}>
+                        <input name="fecha_inicio" type="date" required style={s.input} />
+                      </Campo>
+                    </div>
+                    <div className="pen-col-form">
+                      <Campo label="Estado" T={T}>
+                        <select name="estado" style={s.input} defaultValue="Activo">
+                          <option>Activo</option>
+                          <option>Concluido</option>
+                        </select>
+                      </Campo>
+                    </div>
                   </div>
-                  <div className="pen-col-form" style={{ flex: '1 1 200px' }}>
-                    <Campo label="No. Carpeta de Investigación">
-                      <input name="numero_carpeta" style={s.input} placeholder="Ej: 05-20-26" />
-                    </Campo>
-                  </div>
-                  <div className="pen-col-form" style={{ flex: '1 1 200px' }}>
-                    <Campo label="Delito *">
-                      <input name="delito" required style={s.input} placeholder="Ej: Robo con violencia" />
-                    </Campo>
-                  </div>
-                  <div className="pen-col-form" style={{ flex: '1 1 200px' }}>
-                    <Campo label="Etapa procesal *">
-                      <select name="etapa_procesal" required style={s.input} defaultValue="">
-                        <option value="" disabled>Seleccionar...</option>
-                        <option>Inicial</option>
-                        <option>Intermedia</option>
-                        <option>Juicio</option>
-                      </select>
-                    </Campo>
-                  </div>
-                  <div className="pen-col-form" style={{ flex: '1 1 200px' }}>
-                    <Campo label="Fecha de inicio *">
-                      <input name="fecha_inicio" type="date" required style={s.input} />
-                    </Campo>
-                  </div>
-                  <div className="pen-col-form" style={{ flex: '1 1 200px' }}>
-                    <Campo label="Estado">
-                      <select name="estado" style={s.input} defaultValue="Activo">
-                        <option>Activo</option>
-                        <option>Concluido</option>
-                      </select>
-                    </Campo>
-                  </div>
-                </div>
-              </Seccion>
+                </Seccion>
 
-              <Seccion titulo="Partes involucradas" icono="👥">
-                <div className="pen-form-row" style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 10 }}>
-                  <div className="pen-col-form" style={{ flex: '1 1 200px' }}>
-                    <Campo label="Cliente *">
-                      <input name="cliente_nombre" required style={s.input} placeholder="Nombre del cliente" />
-                    </Campo>
+                <Seccion titulo="Partes involucradas" icono="👥" T={T} oscuro={oscuro}>
+                  <div className="pen-form-row">
+                    <div className="pen-col-form">
+                      <Campo label="Cliente *" T={T}>
+                        <input name="cliente_nombre" required style={s.input} placeholder="Nombre del cliente" />
+                      </Campo>
+                    </div>
+                    <div className="pen-col-form">
+                      <Campo label="Rol del cliente *" T={T}>
+                        <select name="rol_cliente" required style={s.input} defaultValue="Imputado">
+                          <option>Imputado</option>
+                          <option>Víctima</option>
+                        </select>
+                      </Campo>
+                    </div>
+                    <div className="pen-col-form">
+                      <Campo label="Rol del abogado *" T={T}>
+                        <select name="rol_abogado" required style={s.input} defaultValue="Defensor">
+                          <option>Defensor</option>
+                          <option>Asesor jurídico</option>
+                        </select>
+                      </Campo>
+                    </div>
+                    <div className="pen-col-form">
+                      <Campo label="Contraparte" T={T}>
+                        <input name="contraparte" style={s.input} placeholder="Nombre de la contraparte u ofendido" />
+                      </Campo>
+                    </div>
                   </div>
-                  <div className="pen-col-form" style={{ flex: '1 1 200px' }}>
-                    <Campo label="Rol del cliente *">
-                      <select name="rol_cliente" required style={s.input} defaultValue="Imputado">
-                        <option>Imputado</option>
-                        <option>Víctima</option>
-                      </select>
-                    </Campo>
-                  </div>
-                  <div className="pen-col-form" style={{ flex: '1 1 200px' }}>
-                    <Campo label="Rol del abogado *">
-                      <select name="rol_abogado" required style={s.input} defaultValue="Defensor">
-                        <option>Defensor</option>
-                        <option>Asesor jurídico</option>
-                      </select>
-                    </Campo>
-                  </div>
-                  <div className="pen-col-form" style={{ flex: '1 1 200px' }}>
-                    <Campo label="Contraparte">
-                      <input name="contraparte" style={s.input} placeholder="Nombre de la contraparte u ofendido" />
-                    </Campo>
-                  </div>
-                </div>
-              </Seccion>
+                </Seccion>
 
-              <Seccion titulo="Información procesal" icono="⚖️">
-                <div className="pen-form-row" style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 10 }}>
-                  <div className="pen-col-form" style={{ flex: '1 1 200px' }}>
-                    <Campo label="Juez asignado *">
-                      <select name="juez_id" required style={s.input} defaultValue="">
-                        <option value="" disabled>Seleccionar juez</option>
-                        {jueces.map((j) => <option key={j.id} value={j.id}>{j.nombre}</option>)}
-                      </select>
-                    </Campo>
+                <Seccion titulo="Información procesal" icono="⚖️" T={T} oscuro={oscuro}>
+                  <div className="pen-form-row">
+                    <div className="pen-col-form">
+                      <Campo label="Juez asignado *" T={T}>
+                        <select name="juez_id" required style={s.input} defaultValue="">
+                          <option value="" disabled>Seleccionar juez</option>
+                          {jueces.map((j) => <option key={j.id} value={j.id}>{j.nombre}</option>)}
+                        </select>
+                      </Campo>
+                    </div>
+                    <div className="pen-col-form">
+                      <Campo label="Ministerio Público" T={T}>
+                        <select name="mp_id" style={s.input} defaultValue="">
+                          <option value="">Seleccionar MP</option>
+                          {ministerios.map((m) => <option key={m.id} value={m.id}>{m.nombre_agencia}</option>)}
+                        </select>
+                      </Campo>
+                    </div>
+                    <div className="pen-col-form">
+                      <Campo label="Próx. audiencia (término)" T={T}>
+                        <input name="fecha_limite_termino" type="date" style={s.input} />
+                      </Campo>
+                    </div>
+                    <div className="pen-col-form">
+                      <Campo label="Tipo de audiencia" T={T}>
+                        <select name="plazo_otorgado" style={s.input} defaultValue="">
+                          <option value="">Seleccionar...</option>
+                          <option>Inicial</option>
+                          <option>Vinculación</option>
+                          <option>Cautelar</option>
+                        </select>
+                      </Campo>
+                    </div>
+                    <div className="pen-col-form">
+                      <Campo label="Abogado responsable" T={T}>
+                        <select name="abogado_id" style={s.input} defaultValue="">
+                          <option value="">Sin asignar</option>
+                          {abogados.map((a) => <option key={a.id} value={a.id}>{a.nombre_completo}</option>)}
+                        </select>
+                      </Campo>
+                    </div>
                   </div>
-                  <div className="pen-col-form" style={{ flex: '1 1 200px' }}>
-                    <Campo label="Ministerio Público">
-                      <select name="mp_id" style={s.input} defaultValue="">
-                        <option value="">Seleccionar MP</option>
-                        {ministerios.map((m) => <option key={m.id} value={m.id}>{m.nombre_agencia}</option>)}
-                      </select>
-                    </Campo>
-                  </div>
-                  <div className="pen-col-form" style={{ flex: '1 1 200px' }}>
-                    <Campo label="Próx. audiencia (término)">
-                      <input name="fecha_limite_termino" type="date" style={s.input} />
-                    </Campo>
-                  </div>
-                  <div className="pen-col-form" style={{ flex: '1 1 200px' }}>
-                    <Campo label="Tipo de audiencia">
-                      <select name="plazo_otorgado" style={s.input} defaultValue="">
-                        <option value="">Seleccionar...</option>
-                        <option>Inicial</option>
-                        <option>Vinculación</option>
-                        <option>Cautelar</option>
-                      </select>
-                    </Campo>
-                  </div>
-                  <div className="pen-col-form" style={{ flex: '1 1 200px' }}>
-                    <Campo label="Abogado responsable">
-                      <select name="abogado_id" style={s.input} defaultValue="">
-                        <option value="">Sin asignar</option>
-                        {abogados.map((a) => <option key={a.id} value={a.id}>{a.nombre_completo}</option>)}
-                      </select>
-                    </Campo>
-                  </div>
-                </div>
-                <Campo label="Descripción / Notas">
-                  <textarea name="descripcion" rows={3} style={s.textarea}
-                    placeholder="Descripción general del caso..." />
-                </Campo>
-              </Seccion>
+                  <Campo label="Descripción / Notas" T={T}>
+                    <textarea name="descripcion" rows={3} style={s.textarea}
+                      placeholder="Descripción general del caso..." />
+                  </Campo>
+                </Seccion>
+              </div>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, paddingTop: 10, borderTop: `1px solid ${T.border}` }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '16px 24px', borderTop: `1px solid ${T.border}` }}>
                 <button type="button" onClick={() => setAbierto(false)} style={s.btnSec}>Cancelar</button>
-                <button type="submit" style={{ ...s.btnPrimario, background: ACCENT }}>Crear causa</button>
+                <button type="submit" style={{ ...s.btnPrimario, background: T.accent }}>Crear causa</button>
               </div>
             </form>
           </div>
@@ -424,15 +513,15 @@ export default function ClienteCausasPenales({
   )
 }
 
-// ─── Sub-componentes ──────────────────────────────────────────────────────
-function Alerta({ tipo, children }: { tipo: 'ok' | 'error'; children: React.ReactNode }) {
+// ─── Sub-componentes adaptados al tema ──────────────────────────────────────
+function Alerta({ tipo, oscuro, children }: { tipo: 'ok' | 'error'; oscuro: boolean; children: React.ReactNode }) {
   const ok = tipo === 'ok'
   return (
     <div style={{
       display: 'flex', alignItems: 'center', gap: 8,
-      color:      ok ? '#4ade80' : '#b3434f',
-      background: ok ? 'rgba(74,222,128,0.08)' : 'rgba(179,67,79,0.10)',
-      border:     `1px solid ${ok ? 'rgba(74,222,128,0.15)' : 'rgba(179,67,79,0.20)'}`,
+      color:      ok ? '#16a34a' : '#dc2626',
+      background: ok ? (oscuro ? 'rgba(74,222,128,0.08)' : 'rgba(22,163,74,0.06)') : (oscuro ? 'rgba(179,67,79,0.10)' : 'rgba(220,38,38,0.06)'),
+      border:     `1px solid ${ok ? (oscuro ? 'rgba(74,222,128,0.15)' : 'rgba(22,163,74,0.15)') : (oscuro ? 'rgba(179,67,79,0.20)' : 'rgba(220,38,38,0.15)')}`,
       padding: '8px 12px', borderRadius: 6, fontSize: 12.5, fontWeight: 500, marginBottom: 12,
     }}>
       {children}
@@ -440,10 +529,21 @@ function Alerta({ tipo, children }: { tipo: 'ok' | 'error'; children: React.Reac
   )
 }
 
-function Seccion({ titulo, icono, children }: { titulo: string; icono: string; children: React.ReactNode }) {
+function Seccion({ titulo, icono, T, oscuro, children }: { titulo: string; icono: string; T: typeof T_DARK; oscuro: boolean; children: React.ReactNode }) {
   return (
-    <div style={{ border: `1px solid rgba(255,255,255,0.06)`, borderRadius: 8, padding: '12px 14px', background: '#0b1220' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, fontWeight: 600, color: 'rgba(255,255,255,0.40)', marginBottom: 10 }}>
+    <div style={{
+      border: `1px solid ${T.border}`,
+      borderRadius: 8,
+      padding: '16px',
+      background: T.surfaceLow,
+      marginBottom: 16,
+    }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 6,
+        fontSize: 11.5, fontWeight: 600,
+        color: T.textMuted,
+        marginBottom: 14,
+      }}>
         <span>{icono}</span>{titulo}
       </div>
       {children}
@@ -451,17 +551,17 @@ function Seccion({ titulo, icono, children }: { titulo: string; icono: string; c
   )
 }
 
-function Campo({ label, children }: { label: string; children: React.ReactNode }) {
+function Campo({ label, T, children }: { label: string; T: typeof T_DARK; children: React.ReactNode }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <label style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.40)' }}>{label}</label>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8 }}>
+      <label style={{ fontSize: 11, fontWeight: 600, color: T.textMuted }}>{label}</label>
       {children}
     </div>
   )
 }
 
-// ─── Estilos (estructura Amparos, acento rojo) ────────────────────────────
-const s = {
+// ─── Estilos – modal centrado con márgenes en móvil ─────────────────────
+const getStyles = (T: typeof T_DARK, oscuro: boolean) => ({
   root: {
     width: '100%',
     padding: '16px 12px',
@@ -476,7 +576,7 @@ const s = {
     marginBottom: 16,
   },
   titulo: {
-    fontSize: '20px',
+    fontSize: 'clamp(18px, 5vw, 24px)',
     fontWeight: 700,
     color: T.textPrimary,
     margin: 0,
@@ -523,10 +623,11 @@ const s = {
     width: 28, height: 28,
     border: `1px solid ${T.border}`,
     borderRadius: 6,
-    background: '#0f1828',
+    background: T.surfaceLow,
     color: T.textMuted,
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     cursor: 'pointer',
+    flexShrink: 0,
   } as React.CSSProperties,
   filtrosRow: {
     display: 'flex',
@@ -544,7 +645,7 @@ const s = {
   searchInput: {
     width: '100%',
     padding: '8px 10px 8px 30px',
-    background: '#0f1828',
+    background: T.surfaceLow,
     border: `1px solid ${T.border}`,
     borderRadius: 6,
     color: T.textPrimary,
@@ -553,9 +654,9 @@ const s = {
   } as React.CSSProperties,
   tab: (activo: boolean): React.CSSProperties => ({
     padding: '6px 12px',
-    background: activo ? ACCENT_ALPHA : 'transparent',
-    color:      activo ? ACCENT : T.textMuted,
-    border:     `1px solid ${activo ? ACCENT_BORDER : T.border}`,
+    background: activo ? T.accentAlpha : 'transparent',
+    color:      activo ? T.accent : T.textMuted,
+    border:     `1px solid ${activo ? T.accentBorder : T.border}`,
     borderRadius: 6,
     cursor: 'pointer',
     fontSize: 12,
@@ -590,7 +691,7 @@ const s = {
     letterSpacing: '0.04em',
     textTransform: 'uppercase' as const,
     textAlign: 'left' as const,
-    background: '#0f1828',
+    background: T.surfaceLow,
     borderBottom: `1px solid ${T.border}`,
   },
   td: {
@@ -620,32 +721,54 @@ const s = {
     fontWeight: 600,
     color: T.textPrimary,
   } as React.CSSProperties,
+  // ✅ Overlay: padding para que el modal nunca toque los bordes
   overlay: {
     position: 'fixed' as const,
     inset: 0,
-    background: 'rgba(6,10,18,0.8)',
+    background: oscuro ? 'rgba(6,10,18,0.8)' : 'rgba(0,0,0,0.4)',
     backdropFilter: 'blur(4px)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: '12px',
+    padding: '12px', // margen alrededor del modal
     zIndex: 200,
   },
+  // ✅ Modal: siempre tiene un ancho máximo y altura máxima, centrado
   modal: {
     background: T.surface,
     border: `1px solid ${T.border}`,
-    borderRadius: 10,
-    padding: '16px',
+    borderRadius: 12,
     width: '100%',
-    maxWidth: 500,
+    maxWidth: 600,
+    maxHeight: '90vh', // no ocupa toda la pantalla
     display: 'flex',
     flexDirection: 'column' as const,
-    gap: 12,
+    overflow: 'hidden',
+    boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)',
   },
+  modalHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 12,
+    padding: '24px 24px 0',
+    flexShrink: 0,
+  } as React.CSSProperties,
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 700,
+    color: T.textPrimary,
+    margin: 0,
+  } as React.CSSProperties,
+  modalSub: {
+    fontSize: 12,
+    color: T.textMuted,
+    margin: 0,
+  } as React.CSSProperties,
   input: {
     width: '100%',
-    padding: '8px 10px',
-    background: '#0f1828',
+    padding: '10px 12px',
+    background: T.surfaceLow,
     border: `1px solid ${T.border}`,
     borderRadius: 6,
     color: T.textPrimary,
@@ -655,8 +778,8 @@ const s = {
   } as React.CSSProperties,
   textarea: {
     width: '100%',
-    padding: '8px 10px',
-    background: '#0f1828',
+    padding: '10px 12px',
+    background: T.surfaceLow,
     border: `1px solid ${T.border}`,
     borderRadius: 6,
     color: T.textPrimary,
@@ -665,4 +788,4 @@ const s = {
     boxSizing: 'border-box' as const,
     resize: 'vertical' as const,
   } as React.CSSProperties,
-}
+})

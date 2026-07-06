@@ -1,97 +1,172 @@
-// app/expedientes/penal/page.tsx
-import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
+'use client'
+
+import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { createBrowserClient } from '@supabase/ssr'
+import { leerSesionLocal } from '@/lib/authLocal'
+import { query, queryExpedientesPenalesLocal, queryCatalogosLocal } from '@/lib/dbHelpers'
+import { syncConSupabase } from '@/lib/sync'
 import ClienteCausasPenales from './cliente'
 
-export default async function CausasPenalesPage() {
-  const supabase = await createClient()
+// ────────────────────────────────────────────────────────────────
+// 🔑 getUser con timeout (igual que en el Dashboard)
+// ────────────────────────────────────────────────────────────────
+async function getUserConTimeout(
+  supabase: ReturnType<typeof createBrowserClient>,
+  ms = 4000
+) {
+  try {
+    const resultado = await Promise.race([
+      supabase.auth.getUser(),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), ms)),
+    ])
+    if (!resultado || !('data' in resultado)) return null
+    return resultado.data.user ?? null
+  } catch {
+    return null
+  }
+}
 
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
+// ────────────────────────────────────────────────────────────────
+// 🧩 Página Penal cliente‑first (funciona offline)
+// ────────────────────────────────────────────────────────────────
+export default function PenalPage() {
+  const router = useRouter()
+  const supabase = createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  )
 
-  const { data: materiaPenal } = await supabase
-    .from('materias')
-    .select('id')
-    .eq('nombre', 'Penal')
-    .single()
+  const [data, setData] = useState<{
+    jueces: { id: number; nombre: string }[]
+    ministerios: { id: number; nombre_agencia: string }[]
+    abogados: { id: number; nombre_completo: string }[]
+    causas: any[]
+  } | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  const { data: juzgadosPenales } = await supabase
-    .from('juzgados')
-    .select('id')
-    .eq('materia_id', materiaPenal?.id ?? -1)
+  useEffect(() => {
+    const cargar = async () => {
+      const sesionLocal = leerSesionLocal()
+      const cacheValido = sesionLocal && sesionLocal.expires_at > Date.now()
 
-  const idsJuzgadosPenales = juzgadosPenales?.map((j) => j.id) ?? []
+      // 1. Intentar obtener usuario real con timeout
+      const user = await getUserConTimeout(supabase)
+      if (!user && !cacheValido) {
+        router.push('/login')
+        return
+      }
 
-  const { data: jueces } = await supabase
-    .from('jueces')
-    .select('id, nombre')
-    .in('juzgado_id', idsJuzgadosPenales.length ? idsJuzgadosPenales : [-1])
+      // 2. ⚡ Sincronizar cola local si hay red
+      if (navigator.onLine) {
+        try {
+          await syncConSupabase()
+        } catch (e) {
+          console.warn('Fallo en sincronización:', e)
+        }
+      }
 
-  const { data: ministerios } = await supabase
-    .from('ministerios_publicos')
-    .select('id, nombre_agencia')
+      // 3. Cargar datos desde SQLite local (SIEMPRE)
+      try {
+        const [catalogos, causas] = await Promise.all([
+          queryCatalogosLocal(),
+          queryExpedientesPenalesLocal(),
+        ])
 
-  const { data: abogados } = await supabase
-    .from('usuarios')
-    .select('id, nombre_completo')
-    .eq('rol', 'Abogado')
-    .eq('activo', true)
+        // Obtener abogados (usuarios con rol 'Abogado')
+        const abogadosLocales = await query<{ id: number; nombre_completo: string }>(
+          `SELECT id, nombre_completo FROM usuarios WHERE rol = 'Abogado' AND activo = 1`
+        )
 
-  const { data: causasRaw } = await supabase
-    .from('expedientes')
-    .select(`
-      id, numero_expediente, caracter_cliente, estado, fecha_inicio,
-      clientes ( nombre_completo ),
-      jueces ( nombre ),
-      tareas ( id, descripcion, fecha_vencimiento, completada ),
-      expedientes_penales (
-        numero_carpeta_investigacion, delito, estadio_procesal, rol_abogado,
-        ministerios_publicos ( nombre_agencia )
-      )
-    `)
-    .eq('materia_id', materiaPenal?.id ?? -1)
-    .order('created_at', { ascending: false })
-
-  // Normalizar para evitar referencias circulares en el RSC payload
-  const causas = (causasRaw ?? []).map((c: any) => {
-    const penal = Array.isArray(c.expedientes_penales)
-      ? c.expedientes_penales[0]
-      : c.expedientes_penales
-
-    return {
-      id:               c.id,
-      numero_expediente: c.numero_expediente,
-      caracter_cliente: c.caracter_cliente,
-      estado:           c.estado,
-      fecha_inicio:     c.fecha_inicio,
-      clientes:  c.clientes  ? { nombre_completo: c.clientes.nombre_completo } : null,
-      jueces:    c.jueces    ? { nombre: c.jueces.nombre } : null,
-      tareas: (c.tareas ?? []).map((t: any) => ({
-        id:                t.id,
-        descripcion:       t.descripcion,
-        fecha_vencimiento: t.fecha_vencimiento,
-        completada:        t.completada,
-      })),
-      expedientes_penales: penal ? [{
-        numero_carpeta_investigacion: penal.numero_carpeta_investigacion,
-        delito:           penal.delito,
-        estadio_procesal: penal.estadio_procesal,
-        rol_abogado:      penal.rol_abogado,
-        ministerios_publicos: penal.ministerios_publicos
-          ? { nombre_agencia: penal.ministerios_publicos.nombre_agencia }
-          : null,
-      }] : [],
+        setData({
+          jueces: catalogos.jueces ?? [],
+          ministerios: catalogos.ministerios ?? [],
+          abogados: abogadosLocales ?? [],
+          causas: causas ?? [],
+        })
+        setError(null)
+      } catch (err) {
+        console.error('Error cargando datos locales:', err)
+        setError('No se pudieron cargar los datos. Intentá recargar la página.')
+        // Dejamos data como null para que se muestre el error
+        setData(null)
+      } finally {
+        setLoading(false)
+      }
     }
-  })
 
+    cargar()
+  }, [supabase, router])
+
+  // ── Spinner de carga (sin fondo negro forzado) ──
+  if (loading) {
+    return (
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: '100vh',
+        gap: 12,
+        color: '#8fa8e0',
+      }}>
+        <div style={{
+          width: 24,
+          height: 24,
+          border: '2px solid #b3434f',
+          borderTopColor: 'transparent',
+          borderRadius: '50%',
+          animation: 'spin 0.7s linear infinite',
+        }} />
+        <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+        <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.4)' }}>
+          Cargando causas penales…
+        </span>
+      </div>
+    )
+  }
+
+  // ── Error al cargar ──
+  if (error || !data) {
+    return (
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: '100vh',
+        gap: 8,
+        padding: 20,
+        textAlign: 'center',
+      }}>
+        <p style={{ color: '#dc2626', fontSize: 16, margin: 0 }}>{error || 'Error inesperado'}</p>
+        <button
+          onClick={() => window.location.reload()}
+          style={{
+            marginTop: 8,
+            padding: '6px 16px',
+            background: '#b3434f',
+            color: '#fff',
+            border: 'none',
+            borderRadius: 6,
+            cursor: 'pointer',
+          }}
+        >
+          Reintentar
+        </button>
+      </div>
+    )
+  }
+
+  // ── Render normal del componente (usa el tema del layout) ──
   return (
-    // ✅ Contenedor con padding uniforme (mismo que Civil)
     <div style={{ padding: 'clamp(20px, 4vw, 40px) clamp(20px, 5vw, 40px)', width: '100%' }}>
       <ClienteCausasPenales
-        jueces={jueces ?? []}
-        ministerios={ministerios ?? []}
-        abogados={abogados ?? []}
-        causas={causas}
+        jueces={data.jueces}
+        ministerios={data.ministerios}
+        abogados={data.abogados}
+        causas={data.causas}
       />
     </div>
   )

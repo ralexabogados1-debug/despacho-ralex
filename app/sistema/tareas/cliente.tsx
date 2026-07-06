@@ -1,13 +1,13 @@
-// app/tareas/cliente.tsx
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { crearTarea, actualizarEstadoTarea, eliminarTarea } from './actions'
+import { useTema } from '@/app/sistema/layout' // Ajusta la ruta si es necesario
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 🎨 TOKENS — idénticos al dashboard
+// 🎨 TOKENS OSCUROS
 // ─────────────────────────────────────────────────────────────────────────────
-const T = {
+const T_DARK = {
   surface:     '#0b1220',
   surfaceLow:  '#0f1828',
   border:      'rgba(255,255,255,0.06)',
@@ -25,6 +25,31 @@ const T = {
   textMuted:   'rgba(255,255,255,0.40)',
   textFaint:   'rgba(255,255,255,0.22)',
   textAccent:  '#8fa8e0',
+  bg:          '#070b14',
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 🎨 TOKENS CLAROS
+// ─────────────────────────────────────────────────────────────────────────────
+const T_LIGHT = {
+  surface:     '#ffffff',
+  surfaceLow:  '#f9fafb',
+  border:      'rgba(0,0,0,0.08)',
+  accent:      '#2b5fb0',
+  accentAlpha: 'rgba(43,95,176,0.08)',
+  gold:        '#b8860b',
+  goldAlpha:   'rgba(184,134,11,0.08)',
+  green:       '#16a34a',
+  greenAlpha:  'rgba(22,163,74,0.06)',
+  red:         '#dc2626',
+  redAlpha:    'rgba(220,38,38,0.06)',
+  amber:       '#d97706',
+  amberAlpha:  'rgba(217,119,6,0.08)',
+  textPrimary: 'rgba(0,0,0,0.85)',
+  textMuted:   'rgba(0,0,0,0.50)',
+  textFaint:   'rgba(0,0,0,0.30)',
+  textAccent:  '#1e3a8a',
+  bg:          '#f5f7fa',
 }
 
 interface Tarea {
@@ -49,10 +74,15 @@ export default function TableroTareasCliente({
   abogados: any[]
   usuarioActualId: number
 }) {
+  const { oscuro } = useTema()
+  const T = oscuro ? T_DARK : T_LIGHT
+
   const [abierto, setAbierto]     = useState(false)
   const [busqueda, setBusqueda]   = useState('')
   const [filtroTab, setFiltroTab] = useState<'todos' | 'mis_tareas' | 'pendientes' | 'completadas'>('todos')
   const [error, setError]         = useState<string | null>(null)
+
+  const css = useMemo(() => getStyles(T, oscuro), [T, oscuro])
 
   const tareasFiltradas = tareasInit.filter((t) => {
     const term = busqueda.toLowerCase()
@@ -85,13 +115,13 @@ export default function TableroTareasCliente({
     const vencido = fechaStr < hoy
 
     if (fechaStr === hoy) return (
-      <span style={{ background: T.redAlpha, color: T.red, border: `0.5px solid rgba(179,67,79,0.25)`, padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600 }}>Hoy</span>
+      <span style={{ background: T.redAlpha, color: T.red, border: `0.5px solid ${T.red}44`, padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600 }}>Hoy</span>
     )
     if (fechaStr === mananaStr) return (
-      <span style={{ background: T.accentAlpha, color: T.textAccent, border: `0.5px solid rgba(58,95,184,0.25)`, padding: '2px 8px', borderRadius: 4, fontSize: 11 }}>Mañana</span>
+      <span style={{ background: T.accentAlpha, color: T.textAccent, border: `0.5px solid ${T.accent}44`, padding: '2px 8px', borderRadius: 4, fontSize: 11 }}>Mañana</span>
     )
     if (vencido) return (
-      <span style={{ background: T.redAlpha, color: T.red, border: `0.5px solid rgba(179,67,79,0.25)`, padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600 }}>⚠ {fechaStr}</span>
+      <span style={{ background: T.redAlpha, color: T.red, border: `0.5px solid ${T.red}44`, padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600 }}>⚠ {fechaStr}</span>
     )
     const d = new Date(fechaStr + 'T00:00:00')
     const meses = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic']
@@ -120,7 +150,6 @@ export default function TableroTareasCliente({
 
   return (
     <>
-      {/* Responsive: header apilado, filtros con scroll horizontal, kanban vertical en mobile */}
       <style>{`
         @media (max-width: 520px) {
           .tar-page-header { flex-direction: column; align-items: stretch !important; gap: 14px !important; }
@@ -192,6 +221,7 @@ export default function TableroTareasCliente({
           count={colPorHacer.length}
           color={T.textAccent}
           dot="○"
+          T={T}
         >
           {colPorHacer.map(t => (
             <TarjetaTarea
@@ -200,6 +230,7 @@ export default function TableroTareasCliente({
               renderFecha={renderFecha}
               onCheck={() => cambiarEstado(t.id, 'En Progreso')}
               checked={false}
+              T={T}
             />
           ))}
         </Columna>
@@ -210,6 +241,7 @@ export default function TableroTareasCliente({
           count={colEnProgreso.length}
           color={T.amber}
           dot="◐"
+          T={T}
         >
           {colEnProgreso.map(t => (
             <TarjetaTarea
@@ -218,6 +250,7 @@ export default function TableroTareasCliente({
               renderFecha={renderFecha}
               onCheck={() => cambiarEstado(t.id, 'Completada')}
               checked={false}
+              T={T}
               extra={
                 <button
                   onClick={() => cambiarEstado(t.id, 'Por Hacer')}
@@ -236,6 +269,7 @@ export default function TableroTareasCliente({
           count={colCompletadas.length}
           color={T.green}
           dot="✓"
+          T={T}
         >
           {colCompletadas.map(t => (
             <TarjetaTarea
@@ -245,6 +279,7 @@ export default function TableroTareasCliente({
               onCheck={() => cambiarEstado(t.id, 'En Progreso')}
               checked={true}
               completada
+              T={T}
               extra={
                 <button
                   onClick={() => borrarTarea(t.id)}
@@ -286,10 +321,10 @@ export default function TableroTareasCliente({
             )}
 
             <form action={manejarSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <Campo label="Descripción de la tarea *">
+              <Campo label="Descripción de la tarea *" T={T}>
                 <input name="descripcion" required style={css.input} placeholder="Ej: Redactar demanda inicial o Copias..." />
               </Campo>
-              <Campo label="Vincular a expediente">
+              <Campo label="Vincular a expediente" T={T}>
                 <select name="expediente_id" style={css.input} defaultValue="">
                   <option value="">Ninguno (tarea general del despacho)</option>
                   {expedientes.map((e) => (
@@ -297,7 +332,7 @@ export default function TableroTareasCliente({
                   ))}
                 </select>
               </Campo>
-              <Campo label="Asignar a abogado">
+              <Campo label="Asignar a abogado" T={T}>
                 <select name="asignado_a" style={css.input} defaultValue="">
                   <option value="">Sin asignar</option>
                   {abogados.map((a) => (
@@ -305,7 +340,7 @@ export default function TableroTareasCliente({
                   ))}
                 </select>
               </Campo>
-              <Campo label="Fecha límite (vencimiento)">
+              <Campo label="Fecha límite (vencimiento)" T={T}>
                 <input name="fecha_vencimiento" type="date" style={css.input} />
               </Campo>
 
@@ -324,8 +359,8 @@ export default function TableroTareasCliente({
 // ─────────────────────────────────────────────────────────────────────────────
 // 🧩 SUBCOMPONENTES
 // ─────────────────────────────────────────────────────────────────────────────
-function Columna({ titulo, count, color, dot, children }: {
-  titulo: string; count: number; color: string; dot: string; children: React.ReactNode
+function Columna({ titulo, count, color, dot, T, children }: {
+  titulo: string; count: number; color: string; dot: string; T: typeof T_DARK; children: React.ReactNode
 }) {
   return (
     <div style={{
@@ -354,12 +389,13 @@ function Columna({ titulo, count, color, dot, children }: {
   )
 }
 
-function TarjetaTarea({ tarea: t, renderFecha, onCheck, checked, completada, extra }: {
+function TarjetaTarea({ tarea: t, renderFecha, onCheck, checked, completada, T, extra }: {
   tarea: Tarea
   renderFecha: (f: string | null) => React.ReactNode
   onCheck: () => void
   checked: boolean
   completada?: boolean
+  T: typeof T_DARK
   extra?: React.ReactNode
 }) {
   return (
@@ -401,7 +437,7 @@ function TarjetaTarea({ tarea: t, renderFecha, onCheck, checked, completada, ext
           <span style={{
             background: T.accentAlpha,
             color: T.textAccent,
-            border: `0.5px solid rgba(58,95,184,0.2)`,
+            border: `0.5px solid ${T.accent}44`,
             padding: '2px 8px',
             borderRadius: 4,
             fontSize: 11,
@@ -418,7 +454,7 @@ function TarjetaTarea({ tarea: t, renderFecha, onCheck, checked, completada, ext
   )
 }
 
-function Campo({ label, children }: { label: string; children: React.ReactNode }) {
+function Campo({ label, T, children }: { label: string; T: typeof T_DARK; children: React.ReactNode }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       <label style={{ fontSize: 12, fontWeight: 600, color: T.textMuted }}>{label}</label>
@@ -428,199 +464,201 @@ function Campo({ label, children }: { label: string; children: React.ReactNode }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 🎨 ESTILOS
+// 🎨 ESTILOS DINÁMICOS
 // ─────────────────────────────────────────────────────────────────────────────
-const css = {
-  pageHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 24,
-    gap: 16,
-    flexWrap: 'wrap' as const,
-  },
-  titulo: {
-    fontSize: 'clamp(20px, 3vw, 26px)',
-    fontWeight: 700,
-    color: T.textPrimary,
-    margin: 0,
-    letterSpacing: '-0.5px',
-  } as React.CSSProperties,
-  subtitulo: {
-    fontSize: 13,
-    color: T.textMuted,
-    margin: '5px 0 0',
-    display: 'flex',
-    alignItems: 'center',
-    gap: 6,
-  } as React.CSSProperties,
-  dot: {
-    display: 'inline-block' as const,
-    width: 6,
-    height: 6,
-    borderRadius: '50%',
-    background: T.accent,
-    flexShrink: 0,
-  },
-  btnPrimario: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 7,
-    padding: '10px 18px',
-    background: T.accent,
-    color: 'white',
-    border: 'none',
-    borderRadius: 9,
-    fontSize: 13,
-    fontWeight: 600,
-    cursor: 'pointer',
-    whiteSpace: 'nowrap' as const,
-    flexShrink: 0,
-  } as React.CSSProperties,
-  btnSecundario: {
-    padding: '10px 18px',
-    background: 'transparent',
-    color: T.textMuted,
-    border: `0.5px solid ${T.border}`,
-    borderRadius: 9,
-    fontSize: 13,
-    cursor: 'pointer',
-  } as React.CSSProperties,
-  alertaError: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    color: T.red,
-    background: T.redAlpha,
-    border: `0.5px solid rgba(179,67,79,0.22)`,
-    padding: '10px 14px',
-    borderRadius: 8,
-    fontSize: 13,
-    fontWeight: 500,
-  } as React.CSSProperties,
-  filtrosRow: {
-    display: 'flex',
-    gap: 10,
-    alignItems: 'center',
-    marginBottom: 20,
-    flexWrap: 'wrap' as const,
-  },
-  searchWrap: {
-    position: 'relative' as const,
-    display: 'flex',
-    alignItems: 'center',
-  },
-  searchIcon: {
-    position: 'absolute' as const,
-    left: 11,
-    color: T.textFaint,
-    pointerEvents: 'none' as const,
-  },
-  searchInput: {
-    width: '100%',
-    padding: '9px 12px 9px 33px',
-    background: T.surfaceLow,
-    border: `0.5px solid ${T.border}`,
-    borderRadius: 8,
-    color: T.textPrimary,
-    fontSize: 13,
-    boxSizing: 'border-box' as const,
-    outline: 'none',
-  } as React.CSSProperties,
-  tabs: {
-    display: 'flex',
-    gap: 6,
-    flexWrap: 'wrap' as const,
-  },
-  tab: (activo: boolean): React.CSSProperties => ({
-    padding: '8px 14px',
-    background: activo ? T.accentAlpha : 'transparent',
-    color:      activo ? T.textAccent  : T.textMuted,
-    border:     `0.5px solid ${activo ? 'rgba(58,95,184,0.35)' : T.border}`,
-    borderRadius: 8,
-    cursor: 'pointer',
-    fontSize: 12.5,
-    fontWeight: activo ? 600 : 400,
-    transition: 'all 0.15s',
-    whiteSpace: 'nowrap' as const,
-    flexShrink: 0,
-  }),
-  kanban: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-    gap: 16,
-    alignItems: 'flex-start',
-  } as React.CSSProperties,
-  overlay: {
-    position: 'fixed' as const,
-    inset: 0,
-    background: 'rgba(6,10,18,0.75)',
-    backdropFilter: 'blur(4px)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: '24px 16px',
-    zIndex: 200,
-    overflowY: 'auto' as const,
-  },
-  modal: {
-    background: T.surface,
-    border: `0.5px solid ${T.border}`,
-    borderRadius: 14,
-    padding: '28px 28px',
-    width: '100%',
-    maxWidth: 520,
-    display: 'flex',
-    flexDirection: 'column' as const,
-    gap: 16,
-  },
-  modalHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: 12,
-  } as React.CSSProperties,
-  modalTitulo: {
-    fontSize: 20,
-    fontWeight: 700,
-    color: T.textPrimary,
-    margin: '4px 0 0',
-    letterSpacing: '-0.4px',
-  } as React.CSSProperties,
-  modalSub: {
-    fontSize: 12.5,
-    color: T.textMuted,
-    margin: '4px 0 0',
-  } as React.CSSProperties,
-  btnCerrar: {
-    width: 32,
-    height: 32,
-    border: `0.5px solid ${T.border}`,
-    borderRadius: 8,
-    background: T.surfaceLow,
-    color: T.textMuted,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    cursor: 'pointer',
-    flexShrink: 0,
-  } as React.CSSProperties,
-  modalFooter: {
-    display: 'flex',
-    justifyContent: 'flex-end',
-    gap: 10,
-    paddingTop: 4,
-    borderTop: `0.5px solid ${T.border}`,
-  } as React.CSSProperties,
-  input: {
-    width: '100%',
-    padding: '10px 12px',
-    background: T.surfaceLow,
-    border: `0.5px solid ${T.border}`,
-    borderRadius: 8,
-    color: T.textPrimary,
-    fontSize: 13,
-    boxSizing: 'border-box' as const,
-    outline: 'none',
-  } as React.CSSProperties,
+function getStyles(T: typeof T_DARK, oscuro: boolean) {
+  return {
+    pageHeader: {
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'flex-start',
+      marginBottom: 24,
+      gap: 16,
+      flexWrap: 'wrap' as const,
+    },
+    titulo: {
+      fontSize: 'clamp(20px, 3vw, 26px)',
+      fontWeight: 700,
+      color: T.textPrimary,
+      margin: 0,
+      letterSpacing: '-0.5px',
+    } as React.CSSProperties,
+    subtitulo: {
+      fontSize: 13,
+      color: T.textMuted,
+      margin: '5px 0 0',
+      display: 'flex',
+      alignItems: 'center',
+      gap: 6,
+    } as React.CSSProperties,
+    dot: {
+      display: 'inline-block' as const,
+      width: 6,
+      height: 6,
+      borderRadius: '50%',
+      background: T.accent,
+      flexShrink: 0,
+    },
+    btnPrimario: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 7,
+      padding: '10px 18px',
+      background: T.accent,
+      color: 'white',
+      border: 'none',
+      borderRadius: 9,
+      fontSize: 13,
+      fontWeight: 600,
+      cursor: 'pointer',
+      whiteSpace: 'nowrap' as const,
+      flexShrink: 0,
+    } as React.CSSProperties,
+    btnSecundario: {
+      padding: '10px 18px',
+      background: 'transparent',
+      color: T.textMuted,
+      border: `0.5px solid ${T.border}`,
+      borderRadius: 9,
+      fontSize: 13,
+      cursor: 'pointer',
+    } as React.CSSProperties,
+    alertaError: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 8,
+      color: T.red,
+      background: T.redAlpha,
+      border: `0.5px solid ${T.red}44`,
+      padding: '10px 14px',
+      borderRadius: 8,
+      fontSize: 13,
+      fontWeight: 500,
+    } as React.CSSProperties,
+    filtrosRow: {
+      display: 'flex',
+      gap: 10,
+      alignItems: 'center',
+      marginBottom: 20,
+      flexWrap: 'wrap' as const,
+    },
+    searchWrap: {
+      position: 'relative' as const,
+      display: 'flex',
+      alignItems: 'center',
+    },
+    searchIcon: {
+      position: 'absolute' as const,
+      left: 11,
+      color: T.textFaint,
+      pointerEvents: 'none' as const,
+    },
+    searchInput: {
+      width: '100%',
+      padding: '9px 12px 9px 33px',
+      background: T.surfaceLow,
+      border: `0.5px solid ${T.border}`,
+      borderRadius: 8,
+      color: T.textPrimary,
+      fontSize: 13,
+      boxSizing: 'border-box' as const,
+      outline: 'none',
+    } as React.CSSProperties,
+    tabs: {
+      display: 'flex',
+      gap: 6,
+      flexWrap: 'wrap' as const,
+    },
+    tab: (activo: boolean): React.CSSProperties => ({
+      padding: '8px 14px',
+      background: activo ? T.accentAlpha : 'transparent',
+      color:      activo ? T.textAccent  : T.textMuted,
+      border:     `0.5px solid ${activo ? `${T.accent}55` : T.border}`,
+      borderRadius: 8,
+      cursor: 'pointer',
+      fontSize: 12.5,
+      fontWeight: activo ? 600 : 400,
+      transition: 'all 0.15s',
+      whiteSpace: 'nowrap' as const,
+      flexShrink: 0,
+    }),
+    kanban: {
+      display: 'grid',
+      gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+      gap: 16,
+      alignItems: 'flex-start',
+    } as React.CSSProperties,
+    overlay: {
+      position: 'fixed' as const,
+      inset: 0,
+      background: oscuro ? 'rgba(6,10,18,0.75)' : 'rgba(0,0,0,0.4)',
+      backdropFilter: 'blur(4px)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: '24px 16px',
+      zIndex: 200,
+      overflowY: 'auto' as const,
+    },
+    modal: {
+      background: T.surface,
+      border: `0.5px solid ${T.border}`,
+      borderRadius: 14,
+      padding: '28px 28px',
+      width: '100%',
+      maxWidth: 520,
+      display: 'flex',
+      flexDirection: 'column' as const,
+      gap: 16,
+    },
+    modalHeader: {
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'flex-start',
+      gap: 12,
+    } as React.CSSProperties,
+    modalTitulo: {
+      fontSize: 20,
+      fontWeight: 700,
+      color: T.textPrimary,
+      margin: '4px 0 0',
+      letterSpacing: '-0.4px',
+    } as React.CSSProperties,
+    modalSub: {
+      fontSize: 12.5,
+      color: T.textMuted,
+      margin: '4px 0 0',
+    } as React.CSSProperties,
+    btnCerrar: {
+      width: 32,
+      height: 32,
+      border: `0.5px solid ${T.border}`,
+      borderRadius: 8,
+      background: T.surfaceLow,
+      color: T.textMuted,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      cursor: 'pointer',
+      flexShrink: 0,
+    } as React.CSSProperties,
+    modalFooter: {
+      display: 'flex',
+      justifyContent: 'flex-end',
+      gap: 10,
+      paddingTop: 4,
+      borderTop: `0.5px solid ${T.border}`,
+    } as React.CSSProperties,
+    input: {
+      width: '100%',
+      padding: '10px 12px',
+      background: T.surfaceLow,
+      border: `0.5px solid ${T.border}`,
+      borderRadius: 8,
+      color: T.textPrimary,
+      fontSize: 13,
+      boxSizing: 'border-box' as const,
+      outline: 'none',
+    } as React.CSSProperties,
+  }
 }

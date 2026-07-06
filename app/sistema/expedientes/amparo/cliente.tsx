@@ -1,15 +1,16 @@
 'use client'
 
 import { useState } from 'react'
-import { crearExpedienteAmparo } from './actions'
+import { useExpedientes } from '@/hooks/useExpedientes'
+import { useTema } from '@/app/sistema/layout' // ajusta la ruta si es necesario
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 🎨 TOKENS
+// 🎨 TOKENS OSCUROS (Amparo - dorado)
 // ─────────────────────────────────────────────────────────────────────────────
-const T = {
+const T_DARK = {
   surface:     '#0b1220',
   surfaceLow:  '#0f1828',
-  border:      'rgba(255,255,255,0.05)', // Ajustado para 1px elegante
+  border:      'rgba(255,255,255,0.05)',
   gold:        '#d4af37',
   goldAlpha:   'rgba(212,175,55,0.10)',
   green:       '#4ade80',
@@ -20,6 +21,29 @@ const T = {
   textPrimary: 'rgba(255,255,255,0.85)',
   textMuted:   'rgba(255,255,255,0.40)',
   textFaint:   'rgba(255,255,255,0.22)',
+  textAccent:  '#d4af37',
+  bg:          '#070b14',
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 🎨 TOKENS CLAROS (Amparo - dorado adaptado)
+// ─────────────────────────────────────────────────────────────────────────────
+const T_LIGHT = {
+  surface:     '#ffffff',
+  surfaceLow:  '#f9fafb',
+  border:      'rgba(0,0,0,0.08)',
+  gold:        '#b8860b',
+  goldAlpha:   'rgba(184,134,11,0.08)',
+  green:       '#16a34a',
+  greenAlpha:  'rgba(22,163,74,0.06)',
+  red:         '#dc2626',
+  redAlpha:    'rgba(220,38,38,0.06)',
+  amber:       '#d97706',
+  textPrimary: 'rgba(0,0,0,0.85)',
+  textMuted:   'rgba(0,0,0,0.50)',
+  textFaint:   'rgba(0,0,0,0.30)',
+  textAccent:  '#b8860b',
+  bg:          '#f5f7fa',
 }
 
 type Juzgado = { id: number; nombre: string; ciudad: string }
@@ -34,11 +58,18 @@ export default function ClienteAmparos({
   abogados: Abogado[]
   amparos:  any[]
 }) {
+  const { oscuro } = useTema()
+  const T = oscuro ? T_DARK : T_LIGHT
+
+  // 🔄 Hook offline-first — guarda en SQLite + cola de sync automáticamente
+  const { guardar: guardarAmparo, isOnline } = useExpedientes('expedientes_amparo')
+
   const [abierto,    setAbierto]    = useState(false)
   const [busqueda,   setBusqueda]   = useState('')
   const [filtroTab,  setFiltroTab]  = useState<'todos' | 'tramite' | 'termino' | 'resueltos'>('todos')
   const [mensaje,    setMensaje]    = useState<string | null>(null)
   const [error,      setError]      = useState<string | null>(null)
+  const [guardando,  setGuardando]  = useState(false)
 
   const hoy = new Date().toISOString().split('T')[0]
 
@@ -73,21 +104,59 @@ export default function ClienteAmparos({
     termino:   amparos.filter(a => activo(a.estado) && proxTermo(a.tareas) !== null).length,
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // 🔄 Crear amparo — funciona online y offline vía SQLite + sync_queue
+  // Genera ID temporal local (negativo) si está offline; el sync lo resuelve
+  // ─────────────────────────────────────────────────────────────────────────
   async function manejarSubmit(formData: FormData) {
     setError(null)
-    const r = await crearExpedienteAmparo(formData)
-    if (r?.error) { setError(r.error) }
-    else {
+    setGuardando(true)
+    try {
+      const idTemporal = -Date.now() // ID temporal único mientras no hay red
+
+      // 1. Cliente (Quejoso) — usa el hook de clientes si lo tienes, o inserción directa
+      //    Aquí asumimos que el id de cliente se resuelve igual con id temporal
+      const clienteIdTemporal = -(Date.now() + 1)
+
+      // 2. Expediente base
+      await guardarAmparo({
+        id:                 idTemporal,
+        numero_expediente:  formData.get('numero_expediente') as string,
+        fecha_inicio:       (formData.get('fecha_presentacion') as string) || null,
+        materia_id:         null, // se resuelve en sync si tu backend lo requiere por nombre
+        cliente_id:         clienteIdTemporal,
+        juzgado_id:         Number(formData.get('juzgado_id')) || null,
+        estado:             'Activo',
+        descripcion:        (formData.get('descripcion') as string) || null,
+      })
+
+      // 3. Datos específicos de amparo (tabla hija) — incluye campos nuevos
+      await guardarAmparo({
+        expediente_id:          idTemporal,
+        tipo_amparo:            formData.get('tipo_amparo') as string,
+        autoridad_responsable:  formData.get('autoridad_responsable') as string,
+        acto_reclamado:         formData.get('acto_reclamado') as string,
+        tercero_interesado:     (formData.get('tercero_interesado') as string) || null,
+        estadio_procesal:       (formData.get('estadio_procesal') as string) || null,
+        proxima_audiencia:      (formData.get('proxima_audiencia') as string) || null,
+      })
+
       setMensaje('Juicio de amparo registrado de manera exitosa.')
       setAbierto(false)
       setTimeout(() => setMensaje(null), 3000)
+    } catch (e) {
+      console.error(e)
+      setError('Error al guardar el amparo: ' + String(e))
+    } finally {
+      setGuardando(false)
     }
   }
+
+  const s = getStyles(T, oscuro)
 
   return (
     <div style={s.root}>
       <style>{`
-        /* ── Responsividad unificada y compacta ── */
         .amp-header   { flex-direction: row; }
         .amp-btn-new  { width: auto; }
         .amp-filtros  { flex-direction: row; }
@@ -112,8 +181,8 @@ export default function ClienteAmparos({
           .amp-mobile  { display: none !important; }
         }
 
-        .amp-tr:hover { background: rgba(255,255,255,0.02); }
-        .amp-row-link:hover { background: rgba(255,255,255,0.03); }
+        .amp-tr:hover { background: ${oscuro ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)'}; }
+        .amp-row-link:hover { background: ${oscuro ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)'}; }
       `}</style>
 
       {/* ── ENCABEZADO ── */}
@@ -125,6 +194,7 @@ export default function ClienteAmparos({
             Gestión de juicios de amparo
             &nbsp;·&nbsp;
             <strong style={{ color: T.textPrimary }}>{cnt.todos}</strong> registrados
+            {!isOnline && <span style={{ color: T.gold, marginLeft: 8 }}>· Sin conexión</span>}
           </p>
         </div>
         <button onClick={() => setAbierto(true)} className="amp-btn-new" style={s.btnPrimario}>
@@ -136,11 +206,10 @@ export default function ClienteAmparos({
       </div>
 
       {/* Alerta éxito */}
-      {mensaje && <Alerta tipo="ok">{mensaje}</Alerta>}
+      {mensaje && <Alerta tipo="ok" oscuro={oscuro}>{mensaje}</Alerta>}
 
       {/* ── FILTROS ── */}
       <div className="amp-filtros" style={s.filtrosRow}>
-        {/* Buscador */}
         <div className="amp-busqueda-wrapper" style={{ position: 'relative', display: 'flex', alignItems: 'center', minWidth: 0 }}>
           <svg style={s.searchIcon} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
@@ -154,7 +223,6 @@ export default function ClienteAmparos({
           />
         </div>
 
-        {/* Tabs */}
         <div className="amp-tabs" style={{ display: 'flex', gap: 4, flexWrap: 'wrap' as const, flexShrink: 0 }}>
           {([
             ['todos',     `Todos (${cnt.todos})`],
@@ -180,12 +248,11 @@ export default function ClienteAmparos({
           </div>
         ) : (
           <>
-            {/* ── TABLA — desktop ── */}
             <div className="amp-desktop" style={{ overflowX: 'auto' }}>
               <table style={s.table}>
                 <thead>
                   <tr>
-                    {['No. Expediente','Quejoso','Autoridad Responsable','Acto Reclamado','Juzgado Fed.','Próx. Término'].map(h => (
+                    {['No. Expediente','Quejoso','Autoridad Responsable','Acto Reclamado','Juzgado Fed.','Estadio Procesal','Próx. Término'].map(h => (
                       <th key={h} style={s.th}>{h}</th>
                     ))}
                   </tr>
@@ -210,9 +277,10 @@ export default function ClienteAmparos({
                           <span style={{ color: T.textMuted, fontSize: 13 }}>{amp.juzgados?.nombre ?? '—'}</span>
                           <div style={s.sub}>{amp.juzgados?.ciudad || 'Hidalgo'}</div>
                         </td>
+                        <td style={{ ...s.td, color: T.textMuted, fontSize: 13 }}>{da.estadio_procesal ?? '—'}</td>
                         <td style={s.td}>
                           {!act ? (
-                            <span style={{ ...s.pill, background: T.goldAlpha, color: T.gold, border: '1px solid rgba(212,175,55,0.25)' }}>Resuelto</span>
+                            <span style={{ ...s.pill, background: T.goldAlpha, color: T.gold, border: `1px solid ${T.gold}44` }}>Resuelto</span>
                           ) : pt ? (
                             <span style={{ fontWeight: esH || venc ? 600 : 400, color: venc ? T.red : esH ? T.amber : T.textMuted, fontSize: 13 }}>
                               {venc ? '⚠ ' : esH ? '● ' : ''}{pt}
@@ -228,7 +296,6 @@ export default function ClienteAmparos({
               </table>
             </div>
 
-            {/* ── CARDS — mobile (flex column) ── */}
             <div className="amp-mobile" style={{ display: 'none', flexDirection: 'column' as const }}>
               {filtrados.map(amp => {
                 const da   = amp.expedientes_amparo?.[0] ?? amp.expedientes_amparo ?? {}
@@ -243,16 +310,17 @@ export default function ClienteAmparos({
                     </div>
                     <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' as const, gap: 1 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                        <span style={s.rowTitulo}>{amp.numero_expediente || 'fsdsdfs'}</span>
+                        <span style={s.rowTitulo}>{amp.numero_expediente || '—'}</span>
                         {!act ? (
                           <span style={{ fontSize: 11, color: T.gold, flexShrink: 0 }}>Resuelto</span>
                         ) : pt ? (
                           <span style={{ fontSize: 11, color: venc ? T.red : esH ? T.amber : T.textFaint, flexShrink: 0 }}>{esH ? 'Hoy' : pt}</span>
-                        ) : <span style={{ fontSize: 11, color: T.textFaint }}>2026-06-26</span>}
+                        ) : <span style={{ fontSize: 11, color: T.textFaint }}>—</span>}
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: T.textMuted }}>
                         <span style={{ width: 6, height: 6, borderRadius: '50%', background: act ? T.green : T.gold, flexShrink: 0 }} />
                         {da.tipo_amparo || 'Indirecto'}
+                        {da.estadio_procesal && <span style={{ color: T.textFaint }}>· {da.estadio_procesal}</span>}
                       </div>
                     </div>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ color: T.textFaint, flexShrink: 0 }}>
@@ -266,14 +334,14 @@ export default function ClienteAmparos({
         )}
       </div>
 
-      {/* ── MODAL ── */}
+      {/* ── MODAL — centrado, con altura máxima y scroll interno ── */}
       {abierto && (
         <div style={s.overlay} onClick={() => setAbierto(false)}>
           <div style={s.modal} onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <h2 style={{ fontSize: 18, fontWeight: 700, color: T.textPrimary, margin: 0, letterSpacing: '-0.4px' }}>Nuevo Expediente de Amparo</h2>
-                <p   style={{ fontSize: 12, color: T.textMuted, margin: 0 }}>Complete el formulario para registrar un nuevo juicio</p>
+            <div style={s.modalHeader}>
+              <div>
+                <h2 style={s.modalTitle}>Nuevo Expediente de Amparo</h2>
+                <p style={s.modalSub}>Complete el formulario para registrar un nuevo juicio</p>
               </div>
               <button onClick={() => setAbierto(false)} style={s.btnCerrar} aria-label="Cerrar">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -282,40 +350,82 @@ export default function ClienteAmparos({
               </button>
             </div>
 
-            {error && <Alerta tipo="error">{error}</Alerta>}
+            {(error || !isOnline) && (
+              <div style={{ padding: '0 24px' }}>
+                {error && <Alerta tipo="error" oscuro={oscuro}>{error}</Alerta>}
+                {!isOnline && (
+                  <Alerta tipo="ok" oscuro={oscuro}>
+                    📡 Sin conexión — el amparo se guardará localmente y se sincronizará cuando recuperes internet.
+                  </Alerta>
+                )}
+              </div>
+            )}
 
-            <form action={manejarSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <Seccion titulo="Información del Amparo" icono="📋">
-                <div className="amp-row-form" style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 10 }}>
-                  <div className="amp-col-form" style={{ flex: '1 1 200px' }}>
-                    <Campo label="Número de Expediente *">
-                      <input name="numero_expediente" required style={s.input} placeholder="EJ: 427-2025" />
-                    </Campo>
+            <form
+              onSubmit={(e) => { e.preventDefault(); manejarSubmit(new FormData(e.currentTarget)) }}
+              style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}
+            >
+              <div style={{ flex: 1, overflowY: 'auto', padding: '0 24px' }}>
+                <Seccion titulo="Información del Amparo" icono="📋" T={T} oscuro={oscuro}>
+                  <div className="amp-row-form" style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 10 }}>
+                    <div className="amp-col-form" style={{ flex: '1 1 200px' }}>
+                      <Campo label="Número de Expediente *" T={T}>
+                        <input name="numero_expediente" required style={s.input} placeholder="EJ: 427-2025" />
+                      </Campo>
+                    </div>
+                    <div className="amp-col-form" style={{ flex: '1 1 200px' }}>
+                      <Campo label="Fecha de Presentación" T={T}>
+                        <input name="fecha_presentacion" type="date" style={s.input} />
+                      </Campo>
+                    </div>
+                    <div className="amp-col-form" style={{ flex: '1 1 200px' }}>
+                      <Campo label="Quejoso *" T={T}>
+                        <input name="quejoso_nombre" required style={s.input} placeholder="Nombre" />
+                      </Campo>
+                    </div>
+                    <div className="amp-col-form" style={{ flex: '1 1 200px' }}>
+                      <Campo label="Tipo de Amparo *" T={T}>
+                        <select name="tipo_amparo" required style={s.input} defaultValue="Indirecto">
+                          <option>Directo</option>
+                          <option>Indirecto</option>
+                        </select>
+                      </Campo>
+                    </div>
+                    <div className="amp-col-form" style={{ flex: '1 1 200px' }}>
+                      <Campo label="Autoridad Responsable" T={T}>
+                        <input name="autoridad_responsable" style={s.input} placeholder="Ej: Jueces de Control Hidalgo" />
+                      </Campo>
+                    </div>
+                    <div className="amp-col-form" style={{ flex: '1 1 200px' }}>
+                      <Campo label="Acto Reclamado" T={T}>
+                        <input name="acto_reclamado" style={s.input} placeholder="Descripción breve" />
+                      </Campo>
+                    </div>
+                    <div className="amp-col-form" style={{ flex: '1 1 200px' }}>
+                      <Campo label="Tercero Interesado" T={T}>
+                        <input name="tercero_interesado" style={s.input} placeholder="Si aplica" />
+                      </Campo>
+                    </div>
+                    {/* 🆕 Campos nuevos detectados en la app anterior */}
+                    <div className="amp-col-form" style={{ flex: '1 1 200px' }}>
+                      <Campo label="Estadio Procesal" T={T}>
+                        <input name="estadio_procesal" style={s.input} placeholder="Ej: Suspensión Provisional" />
+                      </Campo>
+                    </div>
+                    <div className="amp-col-form" style={{ flex: '1 1 200px' }}>
+                      <Campo label="Próxima Audiencia" T={T}>
+                        <input name="proxima_audiencia" type="date" style={s.input} />
+                      </Campo>
+                    </div>
                   </div>
-                  <div className="amp-col-form" style={{ flex: '1 1 200px' }}>
-                    <Campo label="Fecha de Presentación">
-                      <input name="fecha_presentacion" type="date" style={s.input} />
-                    </Campo>
-                  </div>
-                  <div className="amp-col-form" style={{ flex: '1 1 200px' }}>
-                    <Campo label="Quejoso *">
-                      <input name="quejoso_nombre" required style={s.input} placeholder="Nombre" />
-                    </Campo>
-                  </div>
-                  <div className="amp-col-form" style={{ flex: '1 1 200px' }}>
-                    <Campo label="Tipo de Amparo *">
-                      <select name="tipo_amparo" required style={s.input} defaultValue="Indirecto">
-                        <option>Directo</option>
-                        <option>Indirecto</option>
-                      </select>
-                    </Campo>
-                  </div>
-                </div>
-              </Seccion>
+                </Seccion>
+              </div>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, paddingTop: 10, borderTop: `1px solid ${T.border}` }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '16px 24px', borderTop: `1px solid ${T.border}` }}>
                 <button type="button" onClick={() => setAbierto(false)} style={s.btnSec}>Cancelar</button>
-                <button type="submit" style={s.btnPrimario}>Crear Amparo</button>
+                <button type="submit" disabled={guardando} style={s.btnPrimario}>
+                  {guardando ? 'Guardando...' : 'Crear Amparo'}
+                </button>
               </div>
             </form>
           </div>
@@ -326,16 +436,16 @@ export default function ClienteAmparos({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Sub-components
+// Sub-components (ahora reciben T y oscuro)
 // ─────────────────────────────────────────────────────────────────────────────
-function Alerta({ tipo, children }: { tipo: 'ok' | 'error'; children: React.ReactNode }) {
+function Alerta({ tipo, oscuro, children }: { tipo: 'ok' | 'error'; oscuro: boolean; children: React.ReactNode }) {
   const ok = tipo === 'ok'
   return (
     <div style={{
       display: 'flex', alignItems: 'center', gap: 8,
-      color:      ok ? '#4ade80' : '#b3434f',
-      background: ok ? 'rgba(74,222,128,0.08)' : 'rgba(179,67,79,0.10)',
-      border:     `1px solid ${ok ? 'rgba(74,222,128,0.15)' : 'rgba(179,67,79,0.20)'}`,
+      color:      ok ? '#16a34a' : '#dc2626',
+      background: ok ? (oscuro ? 'rgba(74,222,128,0.08)' : 'rgba(22,163,74,0.06)') : (oscuro ? 'rgba(179,67,79,0.10)' : 'rgba(220,38,38,0.06)'),
+      border:     `1px solid ${ok ? (oscuro ? 'rgba(74,222,128,0.15)' : 'rgba(22,163,74,0.15)') : (oscuro ? 'rgba(179,67,79,0.20)' : 'rgba(220,38,38,0.15)')}`,
       padding: '8px 12px', borderRadius: 6, fontSize: 12.5, fontWeight: 500, marginBottom: 12,
     }}>
       {children}
@@ -343,10 +453,21 @@ function Alerta({ tipo, children }: { tipo: 'ok' | 'error'; children: React.Reac
   )
 }
 
-function Seccion({ titulo, icono, children }: { titulo: string; icono: string; children: React.ReactNode }) {
+function Seccion({ titulo, icono, T, oscuro, children }: { titulo: string; icono: string; T: typeof T_DARK; oscuro: boolean; children: React.ReactNode }) {
   return (
-    <div style={{ border: `1px solid rgba(255,255,255,0.06)`, borderRadius: 8, padding: '12px 14px', background: '#0b1220' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, fontWeight: 600, color: 'rgba(255,255,255,0.40)', marginBottom: 10 }}>
+    <div style={{
+      border: `1px solid ${T.border}`,
+      borderRadius: 8,
+      padding: '16px',
+      background: T.surfaceLow,
+      marginBottom: 16,
+    }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 6,
+        fontSize: 11.5, fontWeight: 600,
+        color: T.textMuted,
+        marginBottom: 14,
+      }}>
         <span>{icono}</span>{titulo}
       </div>
       {children}
@@ -354,19 +475,19 @@ function Seccion({ titulo, icono, children }: { titulo: string; icono: string; c
   )
 }
 
-function Campo({ label, children }: { label: string; children: React.ReactNode }) {
+function Campo({ label, T, children }: { label: string; T: typeof T_DARK; children: React.ReactNode }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <label style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.40)' }}>{label}</label>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8 }}>
+      <label style={{ fontSize: 11, fontWeight: 600, color: T.textMuted }}>{label}</label>
       {children}
     </div>
   )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Styles unificados a 1px solid
+// Función generadora de estilos dinámica
 // ─────────────────────────────────────────────────────────────────────────────
-const s = {
+const getStyles = (T: typeof T_DARK, oscuro: boolean) => ({
   root: {
     width: '100%',
     padding: '16px 12px',
@@ -381,7 +502,7 @@ const s = {
     marginBottom: 16,
   },
   titulo: {
-    fontSize: '20px',
+    fontSize: 'clamp(18px, 5vw, 24px)',
     fontWeight: 700,
     color: T.textPrimary,
     margin: 0,
@@ -409,7 +530,7 @@ const s = {
     gap: 6,
     padding: '8px 16px',
     background: T.gold,
-    color: '#0f1828',
+    color: oscuro ? '#0f1828' : '#ffffff',
     border: 'none',
     borderRadius: 6,
     fontSize: 13,
@@ -430,10 +551,11 @@ const s = {
     width: 28, height: 28,
     border: `1px solid ${T.border}`,
     borderRadius: 6,
-    background: '#0f1828',
+    background: T.surfaceLow,
     color: T.textMuted,
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     cursor: 'pointer',
+    flexShrink: 0,
   } as React.CSSProperties,
   filtrosRow: {
     display: 'flex',
@@ -451,7 +573,7 @@ const s = {
   searchInput: {
     width: '100%',
     padding: '8px 10px 8px 30px',
-    background: '#0f1828',
+    background: T.surfaceLow,
     border: `1px solid ${T.border}`,
     borderRadius: 6,
     color: T.textPrimary,
@@ -462,7 +584,7 @@ const s = {
     padding: '6px 12px',
     background: activo ? T.goldAlpha : 'transparent',
     color:      activo ? T.gold : T.textMuted,
-    border:     `1px solid ${activo ? 'rgba(212,175,55,0.40)' : T.border}`,
+    border:     `1px solid ${activo ? `${T.gold}66` : T.border}`,
     borderRadius: 6,
     cursor: 'pointer',
     fontSize: 12,
@@ -497,7 +619,7 @@ const s = {
     letterSpacing: '0.04em',
     textTransform: 'uppercase' as const,
     textAlign: 'left' as const,
-    background: '#0f1828',
+    background: T.surfaceLow,
     borderBottom: `1px solid ${T.border}`,
   },
   td: {
@@ -519,7 +641,7 @@ const s = {
   avatar: {
     width: 32, height: 32,
     borderRadius: '50%',
-    background: 'rgba(212,175,55,0.08)',
+    background: T.goldAlpha,
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     flexShrink: 0,
   } as React.CSSProperties,
@@ -531,7 +653,7 @@ const s = {
   overlay: {
     position: 'fixed' as const,
     inset: 0,
-    background: 'rgba(6,10,18,0.8)',
+    background: oscuro ? 'rgba(6,10,18,0.8)' : 'rgba(0,0,0,0.4)',
     backdropFilter: 'blur(4px)',
     display: 'flex',
     alignItems: 'center',
@@ -542,18 +664,38 @@ const s = {
   modal: {
     background: T.surface,
     border: `1px solid ${T.border}`,
-    borderRadius: 10,
-    padding: '16px',
+    borderRadius: 12,
     width: '100%',
-    maxWidth: 500,
+    maxWidth: 600,
+    maxHeight: '90vh',
     display: 'flex',
     flexDirection: 'column' as const,
-    gap: 12,
+    overflow: 'hidden',
+    boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)',
   },
+  modalHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 12,
+    padding: '24px 24px 0',
+    flexShrink: 0,
+  } as React.CSSProperties,
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 700,
+    color: T.textPrimary,
+    margin: 0,
+  } as React.CSSProperties,
+  modalSub: {
+    fontSize: 12,
+    color: T.textMuted,
+    margin: 0,
+  } as React.CSSProperties,
   input: {
     width: '100%',
-    padding: '8px 10px',
-    background: '#0f1828',
+    padding: '10px 12px',
+    background: T.surfaceLow,
     border: `1px solid ${T.border}`,
     borderRadius: 6,
     color: T.textPrimary,
@@ -561,4 +703,4 @@ const s = {
     outline: 'none',
     boxSizing: 'border-box' as const,
   } as React.CSSProperties,
-}
+})

@@ -1,8 +1,13 @@
 'use client'
 
+import { useMemo } from 'react'
 import { useRouter } from 'next/navigation'
+import { useTema } from '@/app/sistema/layout' // Ajusta la ruta si es necesario
 
-const T = {
+// ─────────────────────────────────────────────────────────────────────────────
+// 🎨 TOKENS OSCUROS
+// ─────────────────────────────────────────────────────────────────────────────
+const T_DARK = {
   surface:      '#0b1220',
   border:       'rgba(255,255,255,0.06)',
   accent:       '#3a5fb8',
@@ -18,6 +23,31 @@ const T = {
   textMuted:    'rgba(255,255,255,0.40)',
   textFaint:    'rgba(255,255,255,0.22)',
   textAccent:   '#8fa8e0',
+  bg:           '#070b14',
+  surfaceHover: '#0f1828',
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 🎨 TOKENS CLAROS
+// ─────────────────────────────────────────────────────────────────────────────
+const T_LIGHT = {
+  surface:      '#ffffff',
+  border:       'rgba(0,0,0,0.08)',
+  accent:       '#2b5fb0',
+  accentAlpha:  'rgba(43,95,176,0.08)',
+  accentBorder: 'rgba(43,95,176,0.20)',
+  gold:         '#b8860b',
+  goldAlpha:    'rgba(184,134,11,0.08)',
+  green:        '#16a34a',
+  greenAlpha:   'rgba(22,163,74,0.06)',
+  red:          '#dc2626',
+  redAlpha:     'rgba(220,38,38,0.06)',
+  textPrimary:  'rgba(0,0,0,0.85)',
+  textMuted:    'rgba(0,0,0,0.50)',
+  textFaint:    'rgba(0,0,0,0.30)',
+  textAccent:   '#1e3a8a',
+  bg:           '#f5f7fa',
+  surfaceHover: '#f9fafb',
 }
 
 interface PerfilProps {
@@ -29,7 +59,11 @@ interface PerfilProps {
 }
 
 export default function PerfilUsuarioCliente({ usuario, expedientes, conteoTareas, conteoEventos, actividad }: PerfilProps) {
+  const { oscuro } = useTema()
+  const T = oscuro ? T_DARK : T_LIGHT
   const router = useRouter()
+
+  const styles = useMemo(() => getStyles(T, oscuro), [T, oscuro])
 
   const formatearFecha = (fechaStr: string) => {
     if (!fechaStr) return '—'
@@ -39,12 +73,11 @@ export default function PerfilUsuarioCliente({ usuario, expedientes, conteoTarea
   const iniciales = usuario.nombre_completo?.split(' ').slice(0, 2).map((w: string) => w[0]).join('').toUpperCase() ?? 'US'
 
   return (
-    <div style={{ width: '100%', padding: 'clamp(20px, 4vw, 40px) clamp(16px, 4vw, 40px)', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: 20 }}>
-
+    <div style={styles.root}>
       <style>{`
         .perfil-grid { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 20px; align-items: start; }
         .kpi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-        .t-fila { display: grid; grid-template-columns: minmax(0,1.2fr) minmax(0,1.2fr) 100px 100px; padding: 11px 18px; border-bottom: 0.5px solid rgba(255,255,255,0.06); align-items: center; gap: 12px; }
+        .t-fila { display: grid; grid-template-columns: minmax(0,1.2fr) minmax(0,1.2fr) 100px 100px; padding: 11px 18px; border-bottom: 0.5px solid ${T.border}; align-items: center; gap: 12px; }
         .t-col-hide { display: block; }
         .p-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
         .p-header-btns { display: flex; gap: 10px; flex-wrap: wrap; }
@@ -68,10 +101,10 @@ export default function PerfilUsuarioCliente({ usuario, expedientes, conteoTarea
           Mi perfil &rsaquo; <span style={{ color: T.textPrimary }}>{usuario.nombre_completo}</span>
         </span>
         <div className="p-header-btns">
-          <button style={{ background: 'transparent', border: '0.5px solid rgba(255,255,255,0.12)', borderRadius: 8, padding: '7px 16px', fontSize: 12, fontWeight: 500, color: T.textMuted, cursor: 'pointer', fontFamily: 'inherit' }}>
+          <button style={styles.btnOutline}>
             Desactivar
           </button>
-          <button style={{ background: T.accent, border: 'none', borderRadius: 8, padding: '7px 16px', fontSize: 12, fontWeight: 600, color: '#fff', cursor: 'pointer', fontFamily: 'inherit' }}>
+          <button style={styles.btnPrimario}>
             Editar perfil
           </button>
         </div>
@@ -79,8 +112,8 @@ export default function PerfilUsuarioCliente({ usuario, expedientes, conteoTarea
 
       {/* Título */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <button onClick={() => router.back()} aria-label="Volver" style={{ background: T.surface, border: '0.5px solid rgba(255,255,255,0.12)', borderRadius: 8, width: 34, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, color: T.textPrimary, cursor: 'pointer', fontFamily: 'inherit' }}>←</button>
-        <h1 style={{ fontSize: 'clamp(18px, 2.5vw, 22px)', fontWeight: 700, margin: 0, letterSpacing: '-0.5px', color: T.textPrimary }}>Perfil de usuario</h1>
+        <button onClick={() => router.back()} aria-label="Volver" style={styles.btnBack}>←</button>
+        <h1 style={styles.pageTitle}>Perfil de usuario</h1>
       </div>
 
       {/* Grid principal */}
@@ -89,20 +122,20 @@ export default function PerfilUsuarioCliente({ usuario, expedientes, conteoTarea
         {/* Col izquierda */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
-          <div style={{ background: T.surface, border: `0.5px solid ${T.border}`, borderRadius: 12, padding: '28px 20px', textAlign: 'center' }}>
-            <div style={{ width: 60, height: 60, borderRadius: '50%', background: T.accentAlpha, border: `0.5px solid ${T.accentBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, fontWeight: 700, color: T.textAccent, margin: '0 auto 14px' }}>
+          <div style={styles.cardCenter}>
+            <div style={styles.avatarLarge}>
               {iniciales}
             </div>
             <div style={{ fontSize: 16, fontWeight: 700, color: T.textPrimary, marginBottom: 4 }}>{usuario.nombre_completo}</div>
             <div style={{ fontSize: 12, color: T.textMuted, marginBottom: 14 }}>{usuario.email}</div>
-            <MateriaChip nombre={usuario.rol ?? 'Abogado'} />
+            <MateriaChip nombre={usuario.rol ?? 'Abogado'} T={T} />
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 14, fontSize: 12, color: T.textMuted }}>
               <span style={{ width: 7, height: 7, borderRadius: '50%', background: usuario.activo ? T.green : T.red, display: 'inline-block' }} />
               {usuario.activo ? 'Cuenta activa' : 'Cuenta inactiva'}
             </div>
           </div>
 
-          <div style={{ background: T.surface, border: `0.5px solid ${T.border}`, borderRadius: 12, padding: 20 }}>
+          <div style={styles.card}>
             <p style={{ fontSize: 13, fontWeight: 600, color: T.textPrimary, margin: '0 0 14px' }}>Datos de la cuenta</p>
             {[
               ['Nombre completo',    usuario.nombre_completo],
@@ -127,17 +160,17 @@ export default function PerfilUsuarioCliente({ usuario, expedientes, conteoTarea
               { label: 'Tareas activas', value: conteoTareas },
               { label: 'Aud. próximas',  value: conteoEventos },
             ].map(({ label, value }) => (
-              <div key={label} style={{ background: T.surface, border: `0.5px solid ${T.border}`, borderRadius: 12, padding: '14px 16px', textAlign: 'center' }}>
+              <div key={label} style={styles.kpiCard}>
                 <div style={{ fontSize: 10, fontWeight: 600, color: T.textFaint, letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: 6 }}>{label}</div>
                 <div style={{ fontSize: 28, fontWeight: 700, color: T.textPrimary, letterSpacing: '-1px', lineHeight: 1 }}>{value}</div>
               </div>
             ))}
           </div>
 
-          <div style={{ background: T.surface, border: `0.5px solid ${T.border}`, borderRadius: 12, padding: 20 }}>
+          <div style={styles.card}>
             <p style={{ fontSize: 13, fontWeight: 600, color: T.textPrimary, margin: '0 0 14px' }}>Expedientes asignados</p>
             <div style={{ border: `0.5px solid ${T.border}`, borderRadius: 10, overflow: 'hidden' }}>
-              <div className="t-fila" style={{ fontSize: 11, fontWeight: 500, color: T.textFaint, letterSpacing: '0.06em', textTransform: 'uppercase', background: '#080b14' }}>
+              <div className="t-fila" style={{ fontSize: 11, fontWeight: 500, color: T.textFaint, letterSpacing: '0.06em', textTransform: 'uppercase', background: T.surfaceHover }}>
                 <span>No. Expediente</span>
                 <span className="t-col-hide">Quejoso / Asunto</span>
                 <span className="t-col-hide">Materia</span>
@@ -154,14 +187,14 @@ export default function PerfilUsuarioCliente({ usuario, expedientes, conteoTarea
                 <div key={exp.id} className="t-fila">
                   <span style={{ fontWeight: 600, fontSize: 13, color: T.textPrimary }}>{exp.numero_expediente}</span>
                   <span className="t-col-hide" style={{ fontSize: 13, color: T.textMuted }}>{exp.quejoso ?? '—'}</span>
-                  <span className="t-col-hide"><MateriaChip nombre={exp.tipo_amparo ?? exp.materia ?? 'Amparo'} /></span>
-                  <span style={{ textAlign: 'right' }}><EstadoChip estado={exp.estado_tramite ?? exp.estado ?? 'En trámite'} /></span>
+                  <span className="t-col-hide"><MateriaChip nombre={exp.tipo_amparo ?? exp.materia ?? 'Amparo'} T={T} /></span>
+                  <span style={{ textAlign: 'right' }}><EstadoChip estado={exp.estado_tramite ?? exp.estado ?? 'En trámite'} T={T} /></span>
                 </div>
               ))}
             </div>
           </div>
 
-          <div style={{ background: T.surface, border: `0.5px solid ${T.border}`, borderRadius: 12, padding: 20 }}>
+          <div style={styles.card}>
             <p style={{ fontSize: 13, fontWeight: 600, color: T.textPrimary, margin: '0 0 14px' }}>Actividad reciente</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               {actividad.length === 0 ? (
@@ -184,7 +217,8 @@ export default function PerfilUsuarioCliente({ usuario, expedientes, conteoTarea
   )
 }
 
-function MateriaChip({ nombre }: { nombre: string }) {
+// ─── Sub-componentes con tokens ────────────────────────────────────────────
+function MateriaChip({ nombre, T }: { nombre: string; T: typeof T_DARK }) {
   const map: Record<string, { bg: string; color: string }> = {
     Civil:    { bg: T.accentAlpha, color: T.textAccent },
     Familiar: { bg: T.accentAlpha, color: T.textAccent },
@@ -193,11 +227,103 @@ function MateriaChip({ nombre }: { nombre: string }) {
     Abogado:  { bg: T.accentAlpha, color: T.textAccent },
     admin:    { bg: T.goldAlpha,   color: T.gold },
   }
-  const s = map[nombre] ?? { bg: 'rgba(255,255,255,0.06)', color: T.textMuted }
+  const s = map[nombre] ?? { bg: T.border, color: T.textMuted }
   return <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 20, background: s.bg, color: s.color, display: 'inline-block' }}>{nombre}</span>
 }
 
-function EstadoChip({ estado }: { estado: string }) {
+function EstadoChip({ estado, T }: { estado: string; T: typeof T_DARK }) {
   const esActivo = /activ/i.test(estado)
   return <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 20, display: 'inline-block', background: esActivo ? T.greenAlpha : T.goldAlpha, color: esActivo ? T.green : T.gold }}>{estado}</span>
+}
+
+// ─── Función generadora de estilos dinámica ────────────────────────────────
+function getStyles(T: typeof T_DARK, oscuro: boolean) {
+  return {
+    root: {
+      width: '100%',
+      padding: 'clamp(20px, 4vw, 40px) clamp(16px, 4vw, 40px)',
+      boxSizing: 'border-box' as const,
+      display: 'flex',
+      flexDirection: 'column' as const,
+      gap: 20,
+    },
+    pageTitle: {
+      fontSize: 'clamp(18px, 2.5vw, 22px)',
+      fontWeight: 700,
+      margin: 0,
+      letterSpacing: '-0.5px',
+      color: T.textPrimary,
+    } as React.CSSProperties,
+    btnPrimario: {
+      background: T.accent,
+      border: 'none',
+      borderRadius: 8,
+      padding: '7px 16px',
+      fontSize: 12,
+      fontWeight: 600,
+      color: '#fff',
+      cursor: 'pointer',
+      fontFamily: 'inherit',
+    } as React.CSSProperties,
+    btnOutline: {
+      background: 'transparent',
+      border: `0.5px solid ${T.border}`,
+      borderRadius: 8,
+      padding: '7px 16px',
+      fontSize: 12,
+      fontWeight: 500,
+      color: T.textMuted,
+      cursor: 'pointer',
+      fontFamily: 'inherit',
+    } as React.CSSProperties,
+    btnBack: {
+      background: T.surface,
+      border: `0.5px solid ${T.border}`,
+      borderRadius: 8,
+      width: 34,
+      height: 34,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      fontSize: 14,
+      fontWeight: 700,
+      color: T.textPrimary,
+      cursor: 'pointer',
+      fontFamily: 'inherit',
+    } as React.CSSProperties,
+    card: {
+      background: T.surface,
+      border: `0.5px solid ${T.border}`,
+      borderRadius: 12,
+      padding: 20,
+    } as React.CSSProperties,
+    cardCenter: {
+      background: T.surface,
+      border: `0.5px solid ${T.border}`,
+      borderRadius: 12,
+      padding: '28px 20px',
+      textAlign: 'center' as const,
+    } as React.CSSProperties,
+    avatarLarge: {
+      width: 60,
+      height: 60,
+      borderRadius: '50%',
+      background: T.accentAlpha,
+      border: `0.5px solid ${T.accentBorder}`,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      fontSize: 18,
+      fontWeight: 700,
+      color: T.textAccent,
+      margin: '0 auto 14px',
+    } as React.CSSProperties,
+    kpiCard: {
+      background: T.surface,
+      border: `0.5px solid ${T.border}`,
+      borderRadius: 12,
+      padding: '14px 16px',
+      textAlign: 'center' as const,
+    } as React.CSSProperties,
+  }
 }

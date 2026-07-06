@@ -1,10 +1,13 @@
-// app/calendario/cliente.tsx
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { crearEventoRapido, actualizarEvento, eliminarEvento } from './actions'
+import { useTema } from '@/app/sistema/layout' // Ajusta la ruta si es necesario
 
-const T = {
+// ─────────────────────────────────────────────────────────────────────────────
+// 🎨 TOKENS OSCUROS
+// ─────────────────────────────────────────────────────────────────────────────
+const T_DARK = {
   surface:     '#0b1220',
   surfaceLow:  '#0f1828',
   border:      'rgba(255,255,255,0.06)',
@@ -16,8 +19,30 @@ const T = {
   textAccent:  '#8fa8e0',
   red:         '#b3434f',
   redAlpha:    'rgba(179,67,79,0.10)',
+  bg:          '#070b14',
+  cellBgNonMonth: '#06090f',
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 🎨 TOKENS CLAROS
+// ─────────────────────────────────────────────────────────────────────────────
+const T_LIGHT = {
+  surface:     '#ffffff',
+  surfaceLow:  '#f9fafb',
+  border:      'rgba(0,0,0,0.08)',
+  accent:      '#2b5fb0',
+  accentAlpha: 'rgba(43,95,176,0.08)',
+  textPrimary: 'rgba(0,0,0,0.85)',
+  textMuted:   'rgba(0,0,0,0.50)',
+  textFaint:   'rgba(0,0,0,0.30)',
+  textAccent:  '#1e3a8a',
+  red:         '#dc2626',
+  redAlpha:    'rgba(220,38,38,0.06)',
+  bg:          '#f5f7fa',
+  cellBgNonMonth: '#e5e7eb',
+}
+
+// Colores de tipo (se mantienen, pero se adapta la legibilidad en modo claro)
 const COLOR_TIPO: Record<string, { bg: string; text: string; dot: string }> = {
   'Audiencia':       { bg: 'rgba(179,67,79,0.14)',  text: '#e08a93', dot: '#b3434f' },
   'Término':         { bg: 'rgba(245,158,11,0.12)', text: '#fbbf24', dot: '#f59e0b' },
@@ -40,12 +65,17 @@ export default function CalendarioCliente({
   eventosIniciales: Evento[]
   expedientes: any[]
 }) {
+  const { oscuro } = useTema()
+  const T = oscuro ? T_DARK : T_LIGHT
+
   const [abierto, setAbierto]                       = useState(false)
   const [errorForm, setErrorForm]                   = useState<string | null>(null)
   const [filtros, setFiltros]                       = useState({ Audiencia: true, Término: true, 'Tarea/Pendiente': true })
   const [eventoSeleccionado, setEventoSeleccionado] = useState<Evento | null>(null)
   const [fechaBase, setFechaBase]                   = useState(new Date())
   const [fechaSeleccionada, setFechaSeleccionada]   = useState(new Date().toISOString().split('T')[0])
+
+  const styles = useMemo(() => getStyles(T, oscuro), [T, oscuro])
 
   const anio = fechaBase.getFullYear()
   const mes  = fechaBase.getMonth()
@@ -129,7 +159,6 @@ export default function CalendarioCliente({
   return (
     <div style={{ padding: 'clamp(16px, 4vw, 40px)', color: T.textPrimary, width: '100%', boxSizing: 'border-box' }}>
 
-      {/* ✅ display de celda-dot y celda-texto controlado SOLO por CSS, nunca por inline style */}
       <style>{`
         .cal-grid {
           display: grid;
@@ -166,9 +195,9 @@ export default function CalendarioCliente({
               {mesesNombres[mes]} <span style={{ color: T.textMuted, fontWeight: 400 }}>{anio}</span>
             </h1>
             <div style={{ display: 'flex', gap: 4, background: T.surfaceLow, padding: 4, borderRadius: 8, border: `0.5px solid ${T.border}`, flexShrink: 0 }}>
-              <button onClick={mesAnterior}  style={css.btnNav}>‹</button>
-              <button onClick={irAHoy}       style={{ ...css.btnNav, fontSize: 12, padding: '0 12px', fontWeight: 500 }}>Hoy</button>
-              <button onClick={mesSiguiente} style={css.btnNav}>›</button>
+              <button onClick={mesAnterior}  style={styles.btnNav}>‹</button>
+              <button onClick={irAHoy}       style={{ ...styles.btnNav, fontSize: 12, padding: '0 12px', fontWeight: 500 }}>Hoy</button>
+              <button onClick={mesSiguiente} style={styles.btnNav}>›</button>
             </div>
           </div>
 
@@ -206,7 +235,7 @@ export default function CalendarioCliente({
           }}>
             {['dom','lun','mar','mié','jue','vie','sáb'].map(d => (
               <div key={d} className="dow-label" style={{
-                padding: '10px 4px', background: '#08101e',
+                padding: '10px 4px', background: T.surfaceLow,
                 textAlign: 'center', fontSize: 11,
                 color: T.textMuted, fontWeight: 600, textTransform: 'uppercase',
               }}>
@@ -226,12 +255,11 @@ export default function CalendarioCliente({
                   onClick={() => setFechaSeleccionada(dm.fechaCompleta)}
                   style={{
                     padding: 6,
-                    background: esSeleccionado ? T.accentAlpha : dm.esMesActual ? T.surface : '#06090f',
+                    background: esSeleccionado ? T.accentAlpha : dm.esMesActual ? T.surface : T.cellBgNonMonth,
                     cursor: 'pointer', opacity: dm.esMesActual ? 1 : 0.35,
                     overflow: 'hidden', display: 'flex', flexDirection: 'column',
                   }}
                 >
-                  {/* Número del día */}
                   <div style={{
                     fontSize: 12, fontWeight: 600, marginBottom: 4, flexShrink: 0,
                     color: esSeleccionado ? T.textAccent : esHoy ? T.textAccent : T.textPrimary,
@@ -241,7 +269,7 @@ export default function CalendarioCliente({
                     {dm.dia}
                   </div>
 
-                  {/* ✅ Texto — visible en desktop, oculto en mobile por CSS */}
+                  {/* Texto (desktop) */}
                   <div className="celda-texto">
                     {eventosDia.slice(0, 2).map(ev => {
                       const c = COLOR_TIPO[ev.tipo] || { bg: T.surfaceLow, text: '#fff' }
@@ -269,8 +297,7 @@ export default function CalendarioCliente({
                     )}
                   </div>
 
-                  {/* ✅ Puntos — ocultos en desktop, visibles en mobile por CSS */}
-                  {/* SIN display en inline style — lo controla únicamente el CSS */}
+                  {/* Puntos (mobile) */}
                   <div className="celda-dot">
                     {eventosDia.slice(0, 3).map(ev => {
                       const c = COLOR_TIPO[ev.tipo] || { dot: '#fff' }
@@ -282,7 +309,6 @@ export default function CalendarioCliente({
                       )
                     })}
                   </div>
-
                 </div>
               )
             })}
@@ -305,7 +331,7 @@ export default function CalendarioCliente({
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
               {eventosDelDia.length === 0 ? (
-                <div style={css.cajaVacia}>No hay citas programadas</div>
+                <div style={styles.cajaVacia}>No hay citas programadas</div>
               ) : (
                 eventosDelDia.map(e => {
                   const c = COLOR_TIPO[e.tipo] || { text: '#fff', dot: '#fff' }
@@ -338,12 +364,12 @@ export default function CalendarioCliente({
               <div
                 onClick={(evt) => abrirEditarEvento(proximoEventoCritico, evt)}
                 style={{
-                  background: T.redAlpha, border: '0.5px solid rgba(179,67,79,0.22)',
+                  background: T.redAlpha, border: `0.5px solid ${T.red}44`,
                   borderRadius: 12, padding: 14, display: 'flex', gap: 12, cursor: 'pointer',
                 }}
               >
                 <div style={{
-                  background: 'rgba(179,67,79,0.15)', color: T.red,
+                  background: `${T.red}22`, color: T.red,
                   padding: '6px 10px', borderRadius: 8,
                   textAlign: 'center', minWidth: 32, flexShrink: 0,
                 }}>
@@ -360,11 +386,11 @@ export default function CalendarioCliente({
                 </div>
               </div>
             ) : (
-              <div style={css.cajaVacia}>Sin términos próximos</div>
+              <div style={styles.cajaVacia}>Sin términos próximos</div>
             )}
           </div>
 
-          <button onClick={abrirNuevoEvento} style={css.btnPrimary}>
+          <button onClick={abrirNuevoEvento} style={styles.btnPrimary}>
             + Nuevo Evento
           </button>
         </div>
@@ -374,7 +400,7 @@ export default function CalendarioCliente({
       {abierto && (
         <div
           style={{
-            position: 'fixed', inset: 0, background: 'rgba(3,7,18,0.75)',
+            position: 'fixed', inset: 0, background: oscuro ? 'rgba(3,7,18,0.75)' : 'rgba(0,0,0,0.4)',
             backdropFilter: 'blur(4px)', display: 'flex',
             alignItems: 'flex-start', justifyContent: 'center',
             padding: '24px 16px', overflowY: 'auto', zIndex: 100,
@@ -412,8 +438,8 @@ export default function CalendarioCliente({
             }}>
 
               <div style={{ marginBottom: 14 }}>
-                <label style={css.label}>Categoría</label>
-                <select name="tipo_evento" defaultValue={eventoSeleccionado?.tipo ?? 'Audiencia'} style={css.input}>
+                <label style={styles.label}>Categoría</label>
+                <select name="tipo_evento" defaultValue={eventoSeleccionado?.tipo ?? 'Audiencia'} style={styles.input}>
                   <option>Audiencia</option>
                   <option>Término</option>
                   <option>Tarea/Pendiente</option>
@@ -421,29 +447,29 @@ export default function CalendarioCliente({
               </div>
 
               <div style={{ marginBottom: 14 }}>
-                <label style={css.label}>Título del evento *</label>
+                <label style={styles.label}>Título del evento *</label>
                 <input
                   name="descripcion" required
                   defaultValue={eventoSeleccionado?.titulo ?? ''}
-                  style={css.input}
+                  style={styles.input}
                   placeholder="Ej: Audiencia constitucional"
                 />
               </div>
 
               <div style={{ marginBottom: 14 }}>
-                <label style={css.label}>Fecha y hora *</label>
+                <label style={styles.label}>Fecha y hora *</label>
                 <input
                   name="fecha_hora" type="datetime-local" required
                   defaultValue={eventoSeleccionado
                     ? `${eventoSeleccionado.fecha}T${obtenerHora24(eventoSeleccionado.hora)}`
                     : `${fechaSeleccionada}T10:00`}
-                  style={css.input}
+                  style={styles.input}
                 />
               </div>
 
               <div style={{ marginBottom: 20 }}>
-                <label style={css.label}>Expediente asociado</label>
-                <select name="expediente_id" defaultValue={expedientePreseleccionado} style={css.input}>
+                <label style={styles.label}>Expediente asociado</label>
+                <select name="expediente_id" defaultValue={expedientePreseleccionado} style={styles.input}>
                   <option value="">Ninguno</option>
                   {expedientes.map(ex => (
                     <option key={ex.id} value={ex.id}>{ex.numero_expediente}</option>
@@ -464,7 +490,7 @@ export default function CalendarioCliente({
                     Cancelar
                   </button>
                 </div>
-                <button type="submit" style={{ ...css.btnPrimary, width: 'auto', padding: '10px 24px' }}>
+                <button type="submit" style={{ ...styles.btnPrimary, width: 'auto', padding: '10px 24px' }}>
                   {eventoSeleccionado ? 'Guardar' : 'Agendar'}
                 </button>
               </div>
@@ -476,35 +502,58 @@ export default function CalendarioCliente({
   )
 }
 
-const css = {
-  btnNav: {
-    background: 'transparent', border: 'none',
-    color: 'rgba(255,255,255,0.85)', padding: '6px 10px',
-    borderRadius: 6, cursor: 'pointer', fontSize: 14,
-  } as React.CSSProperties,
+// ─── ESTILOS DINÁMICOS ─────────────────────────────────────────────────────
+function getStyles(T: typeof T_DARK, oscuro: boolean) {
+  return {
+    btnNav: {
+      background: 'transparent',
+      border: 'none',
+      color: T.textPrimary,
+      padding: '6px 10px',
+      borderRadius: 6,
+      cursor: 'pointer',
+      fontSize: 14,
+    } as React.CSSProperties,
 
-  btnPrimary: {
-    width: '100%', padding: '11px', background: '#3a5fb8',
-    color: 'white', border: 'none', borderRadius: 10,
-    fontSize: 13, fontWeight: 600, cursor: 'pointer',
-  } as React.CSSProperties,
+    btnPrimary: {
+      width: '100%',
+      padding: '11px',
+      background: T.accent,
+      color: 'white',
+      border: 'none',
+      borderRadius: 10,
+      fontSize: 13,
+      fontWeight: 600,
+      cursor: 'pointer',
+    } as React.CSSProperties,
 
-  cajaVacia: {
-    border: '0.5px dashed rgba(255,255,255,0.06)',
-    color: 'rgba(255,255,255,0.40)', padding: 20,
-    textAlign: 'center' as const, borderRadius: 10, fontSize: 12,
-  } as React.CSSProperties,
+    cajaVacia: {
+      border: `0.5px dashed ${T.border}`,
+      color: T.textMuted,
+      padding: 20,
+      textAlign: 'center' as const,
+      borderRadius: 10,
+      fontSize: 12,
+    } as React.CSSProperties,
 
-  label: {
-    display: 'block', fontSize: 12,
-    color: 'rgba(255,255,255,0.40)', marginBottom: 6, fontWeight: 500,
-  } as React.CSSProperties,
+    label: {
+      display: 'block',
+      fontSize: 12,
+      color: T.textMuted,
+      marginBottom: 6,
+      fontWeight: 500,
+    } as React.CSSProperties,
 
-  input: {
-    width: '100%', padding: '10px 12px',
-    border: '0.5px solid rgba(255,255,255,0.06)',
-    borderRadius: 8, background: '#0f1828',
-    color: 'rgba(255,255,255,0.85)', fontSize: 14,
-    boxSizing: 'border-box' as const, outline: 'none',
-  } as React.CSSProperties,
+    input: {
+      width: '100%',
+      padding: '10px 12px',
+      border: `0.5px solid ${T.border}`,
+      borderRadius: 8,
+      background: T.surfaceLow,
+      color: T.textPrimary,
+      fontSize: 14,
+      boxSizing: 'border-box' as const,
+      outline: 'none',
+    } as React.CSSProperties,
+  }
 }
