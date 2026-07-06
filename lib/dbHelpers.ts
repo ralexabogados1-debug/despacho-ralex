@@ -206,13 +206,16 @@ export async function queryCatalogosLocal() {
 }
 
 // JOIN local para tareas
+// 🆕 se agrega t.estado_kanban al SELECT — sin esto, TableroTareasCliente
+// no puede clasificar las tareas offline en las columnas del Kanban
+// (Por Hacer / En Progreso / Completada), porque el campo llegaba undefined.
 export async function queryTareasLocal(): Promise<any[]> {
   const db = await getDb();
 
   const stmt = db.prepare(`
     SELECT
       t.id, t.expediente_id, t.asignado_a_usuario_id,
-      t.descripcion, t.fecha_vencimiento, t.completada,
+      t.descripcion, t.fecha_vencimiento, t.completada, t.estado_kanban,
       e.numero_expediente,
       u.nombre_completo AS usuario_nombre
     FROM tareas t

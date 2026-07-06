@@ -3,6 +3,8 @@
 import { useState, useMemo } from 'react'
 import { crearTarea, actualizarEstadoTarea, eliminarTarea } from './actions'
 import { useTema } from '@/app/sistema/layout' // Ajusta la ruta si es necesario
+import { useTareas } from '@/hooks/useTareas'
+import { generarIdTemporal } from '@/lib/dbHelpers'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 🎨 TOKENS OSCUROS
@@ -77,6 +79,19 @@ export default function TableroTareasCliente({
   const { oscuro } = useTema()
   const T = oscuro ? T_DARK : T_LIGHT
 
+  // 🔄 Hook offline-first — misma firma que useExpedientes (Civil/Penal/Amparo)
+  const {
+    tareas: tareasLocales,
+    isOnline,
+    syncing,
+    guardar: guardarTareaLocal,
+    eliminar: eliminarTareaLocal,
+  } = useTareas()
+
+  // 🔧 Cuando hay conexión usamos el arreglo renderizado por el servidor (más
+  // fresco tras cada revalidatePath); sin conexión, caemos al cache SQLite.
+  const tareasActivas = (isOnline ? tareasInit : tareasLocales) ?? []
+
   const [abierto, setAbierto]     = useState(false)
   const [busqueda, setBusqueda]   = useState('')
   const [filtroTab, setFiltroTab] = useState<'todos' | 'mis_tareas' | 'pendientes' | 'completadas'>('todos')
@@ -84,7 +99,7 @@ export default function TableroTareasCliente({
 
   const css = useMemo(() => getStyles(T, oscuro), [T, oscuro])
 
-  const tareasFiltradas = tareasInit.filter((t) => {
+  const tareasFiltradas = tareasActivas.filter((t) => {
     const term = busqueda.toLowerCase()
     const ok =
       t.descripcion?.toLowerCase().includes(term) ||
@@ -101,10 +116,10 @@ export default function TableroTareasCliente({
   const colCompletadas = tareasFiltradas.filter(t => t.estado_kanban === 'Completada' || t.completada)
 
   const cnt = {
-    todos:       tareasInit.length,
-    mis_tareas:  tareasInit.filter(t => t.asignado_a_usuario_id === usuarioActualId).length,
-    pendientes:  tareasInit.filter(t => t.estado_kanban !== 'Completada' && !t.completada).length,
-    completadas: tareasInit.filter(t => t.estado_kanban === 'Completada' || t.completada).length,
+    todos:       tareasActivas.length,
+    mis_tareas:  tareasActivas.filter(t => t.asignado_a_usuario_id === usuarioActualId).length,
+    pendientes:  tareasActivas.filter(t => t.estado_kanban !== 'Completada' && !t.completada).length,
+    completadas: tareasActivas.filter(t => t.estado_kanban === 'Completada' || t.completada).length,
   }
 
   const renderFecha = (fechaStr: string | null) => {
@@ -132,20 +147,76 @@ export default function TableroTareasCliente({
     )
   }
 
+  // 🔧 Mover tarea entre columnas — online usa el Server Action (revalida la
+  // página); sin conexión actualiza la fila local vía useTareas().guardar(),
+  // que solo toca las columnas indicadas (estado_kanban/completada) dejando
+  // el resto de la fila intacta gracias al ON CONFLICT DO UPDATE de useTablaLocal.
   const cambiarEstado = async (id: number, estado: 'Por Hacer' | 'En Progreso' | 'Completada') => {
-    await actualizarEstadoTarea(id, estado)
-  }
-
-  const borrarTarea = async (id: number) => {
-    if (confirm('¿Desea borrar de forma permanente esta tarea?')) {
-      await eliminarTarea(id)
+    setError(null)
+    if (isOnline) {
+      const r = await actualizarEstadoTarea(id, estado)
+      if (r?.error) setError(r.error)
+    } else {
+      try {
+        await guardarTareaLocal({
+          id,
+          estado_kanban: estado,
+          completada: estado === 'Completada' ? 1 : 0,
+        })
+      } catch (e: any) {
+        setError(e?.message ?? 'No se pudo actualizar la tarea sin conexión.')
+      }
     }
   }
 
+  // 🔧 Eliminar — online: DELETE real en Supabase. Offline: soft-delete local
+  // (columna `eliminada`) vía useTareas().eliminar(); el sync se encarga
+  // de reflejarlo cuando vuelva la conexión.
+  const borrarTarea = async (id: number) => {
+    if (!confirm('¿Desea borrar de forma permanente esta tarea?')) return
+    setError(null)
+    if (isOnline) {
+      const r = await eliminarTarea(id)
+      if (r?.error) setError(r.error)
+    } else {
+      try {
+        await eliminarTareaLocal(String(id))
+      } catch (e: any) {
+        setError(e?.message ?? 'No se pudo eliminar la tarea sin conexión.')
+      }
+    }
+  }
+
+  // 🔧 Crear tarea — online usa el Server Action existente (form action).
+  // Offline arma la fila localmente con un id temporal negativo y la guarda
+  // vía useTareas().guardar(), igual patrón que crearExpedienteCivilLocal.
   async function manejarSubmit(formData: FormData) {
     setError(null)
-    const r = await crearTarea(formData)
-    if (r?.error) { setError(r.error) } else { setAbierto(false) }
+
+    if (isOnline) {
+      const r = await crearTarea(formData)
+      if (r?.error) { setError(r.error) } else { setAbierto(false) }
+      return
+    }
+
+    try {
+      const expedienteIdRaw = formData.get('expediente_id') as string
+      const asignadoRaw     = formData.get('asignado_a') as string
+
+      await guardarTareaLocal({
+        id: generarIdTemporal(),
+        expediente_id: expedienteIdRaw ? Number(expedienteIdRaw) : null,
+        asignado_a_usuario_id: asignadoRaw ? Number(asignadoRaw) : null,
+        descripcion: formData.get('descripcion') as string,
+        fecha_vencimiento: (formData.get('fecha_vencimiento') as string) || null,
+        completada: 0,
+        eliminada: 0,
+        estado_kanban: 'Por Hacer',
+      })
+      setAbierto(false)
+    } catch (e: any) {
+      setError(e?.message ?? 'No se pudo guardar la tarea sin conexión.')
+    }
   }
 
   return (
@@ -174,6 +245,21 @@ export default function TableroTareasCliente({
           <p style={css.subtitulo}>
             <span style={css.dot} />
             Gestiona pendientes relacionados con expedientes
+            &nbsp;·&nbsp;
+            <span style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              color: isOnline ? T.green : T.amber,
+            }}>
+              <span style={{
+                width: 5, height: 5,
+                borderRadius: '50%',
+                background: isOnline ? T.green : T.amber,
+                display: 'inline-block',
+              }} />
+              {syncing ? 'Sincronizando...' : isOnline ? 'En línea' : 'Sin conexión'}
+            </span>
           </p>
         </div>
         <button onClick={() => setAbierto(true)} className="tar-btn-primario" style={css.btnPrimario}>
@@ -183,6 +269,15 @@ export default function TableroTareasCliente({
           Nueva tarea
         </button>
       </div>
+
+      {error && (
+        <div style={{ ...css.alertaError, marginBottom: 16 }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/>
+          </svg>
+          {error}
+        </div>
+      )}
 
       {/* ── FILTROS ── */}
       <div className="tar-filtros-row" style={css.filtrosRow}>
@@ -311,6 +406,12 @@ export default function TableroTareasCliente({
               </button>
             </div>
 
+            {!isOnline && (
+              <div style={css.alertaOffline}>
+                📡 Sin conexión — la tarea se guardará localmente y se sincronizará cuando recuperes internet.
+              </div>
+            )}
+
             {error && (
               <div style={css.alertaError}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -320,7 +421,13 @@ export default function TableroTareasCliente({
               </div>
             )}
 
-            <form action={manejarSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault()
+                manejarSubmit(new FormData(e.currentTarget))
+              }}
+              style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
+            >
               <Campo label="Descripción de la tarea *" T={T}>
                 <input name="descripcion" required style={css.input} placeholder="Ej: Redactar demanda inicial o Copias..." />
               </Campo>
@@ -490,6 +597,7 @@ function getStyles(T: typeof T_DARK, oscuro: boolean) {
       display: 'flex',
       alignItems: 'center',
       gap: 6,
+      flexWrap: 'wrap' as const,
     } as React.CSSProperties,
     dot: {
       display: 'inline-block' as const,
@@ -533,6 +641,15 @@ function getStyles(T: typeof T_DARK, oscuro: boolean) {
       padding: '10px 14px',
       borderRadius: 8,
       fontSize: 13,
+      fontWeight: 500,
+    } as React.CSSProperties,
+    alertaOffline: {
+      color: T.amber,
+      background: T.amberAlpha,
+      border: `0.5px solid ${T.amber}44`,
+      padding: '10px 14px',
+      borderRadius: 8,
+      fontSize: 12.5,
       fontWeight: 500,
     } as React.CSSProperties,
     filtrosRow: {

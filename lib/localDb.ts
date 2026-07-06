@@ -139,6 +139,9 @@ function initSchema(db: Database) {
       descripcion           TEXT,
       fecha_vencimiento     TEXT,
       completada            INTEGER DEFAULT 0,
+      -- 🆕 estado_kanban: necesario para el tablero de Tareas (Por Hacer / En Progreso / Completada).
+      -- Sin esta columna, TableroTareasCliente no puede clasificar las tareas en columnas offline.
+      estado_kanban         TEXT,
       eliminada             INTEGER DEFAULT 0,
       sync_status           TEXT DEFAULT 'synced',
       updated_at            INTEGER
@@ -284,6 +287,11 @@ function migrarSchema(db: Database) {
 
   agregarColumnaSiFalta(db, 'expedientes_amparo', 'estadio_procesal', 'TEXT')
   agregarColumnaSiFalta(db, 'expedientes_amparo', 'proxima_audiencia', 'TEXT')
+
+  // 🆕 estado_kanban (usuarios con BD anterior a este cambio) — sin esta
+  // columna el tablero de Tareas no puede clasificar filas offline en
+  // Por Hacer / En Progreso / Completada.
+  agregarColumnaSiFalta(db, 'tareas', 'estado_kanban', 'TEXT')
 
   saveDb()
 }

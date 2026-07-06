@@ -22,6 +22,7 @@ const T_DARK = {
   amber:       '#fbbf24',
   amberAlpha:  'rgba(251,191,36,0.08)',
   red:         '#b3434f',
+  redAlpha:    'rgba(179,67,79,0.10)',
   textPrimary: 'rgba(255,255,255,0.85)',
   textMuted:   'rgba(255,255,255,0.40)',
   textFaint:   'rgba(255,255,255,0.22)',
@@ -44,6 +45,7 @@ const T_LIGHT = {
   amber:       '#d97706',
   amberAlpha:  'rgba(217,119,6,0.08)',
   red:         '#dc2626',
+  redAlpha:    'rgba(220,38,38,0.06)',
   textPrimary: 'rgba(0,0,0,0.85)',
   textMuted:   'rgba(0,0,0,0.50)',
   textFaint:   'rgba(0,0,0,0.30)',
@@ -71,6 +73,11 @@ export default function DetalleExpedienteCivilPage({
   const [exp, setExp] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
+
+  // 🗑️ Estado para eliminar
+  const [confirmarEliminar, setConfirmarEliminar] = useState(false)
+  const [eliminando, setEliminando] = useState(false)
+  const [errorEliminar, setErrorEliminar] = useState<string | null>(null)
 
   useEffect(() => {
     if (!id || Number.isNaN(expedienteId)) {
@@ -128,6 +135,25 @@ export default function DetalleExpedienteCivilPage({
     fetchData()
   }, [expedienteId, id, router, supabase])
 
+  // 🗑️ Elimina el expediente y regresa al listado
+  async function manejarEliminar() {
+    setErrorEliminar(null)
+    setEliminando(true)
+    try {
+      const { error: delError } = await supabase
+        .from('expedientes')
+        .delete()
+        .eq('id', expedienteId)
+
+      if (delError) throw delError
+
+      router.push('/sistema/expedientes/civil')
+    } catch (e: any) {
+      setErrorEliminar(e?.message ?? 'No se pudo eliminar el expediente. Intenta de nuevo.')
+      setEliminando(false)
+    }
+  }
+
   const s = useMemo(() => getStyles(T, oscuro), [T, oscuro])
 
   if (loading) {
@@ -177,6 +203,20 @@ export default function DetalleExpedienteCivilPage({
           }
           .civ-hero .civ-badge {
             align-self: flex-start;
+          }
+          .civ-actions {
+            flex-direction: column-reverse !important;
+            align-items: stretch !important;
+          }
+          .civ-actions-derecha {
+            width: 100% !important;
+          }
+          .civ-actions-derecha button {
+            flex: 1 1 auto;
+          }
+          .civ-btn-eliminar {
+            width: 100% !important;
+            justify-content: center !important;
           }
         }
       `}</style>
@@ -315,20 +355,57 @@ export default function DetalleExpedienteCivilPage({
         </div>
       </div>
 
-      <div style={s.actions}>
-        <button style={s.btnSecundario}>
+      {/* ── ACCIONES ── */}
+      <div className="civ-actions" style={s.actions}>
+        <button className="civ-btn-eliminar" style={s.btnPeligro} onClick={() => setConfirmarEliminar(true)}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+            <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6"/>
           </svg>
-          Editar Expediente
+          Eliminar
         </button>
-        <button style={s.btnPrimario}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 5v14M5 12h14"/>
-          </svg>
-          Agregar Tarea
-        </button>
+        <div className="civ-actions-derecha" style={{ display: 'flex', gap: 12, flexWrap: 'wrap' as const }}>
+          <button style={s.btnSecundario}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+            </svg>
+            Editar Expediente
+          </button>
+          <button style={s.btnPrimario}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 5v14M5 12h14"/>
+            </svg>
+            Agregar Tarea
+          </button>
+        </div>
       </div>
+
+      {/* ── MODAL DE CONFIRMACIÓN ── */}
+      {confirmarEliminar && (
+        <div style={s.overlay} onClick={() => !eliminando && setConfirmarEliminar(false)}>
+          <div style={s.modalConfirm} onClick={e => e.stopPropagation()}>
+            <div style={s.modalConfirmIcon}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={T.red} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 9v4M12 17h.01"/><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+              </svg>
+            </div>
+            <h3 style={s.modalConfirmTitulo}>¿Eliminar este expediente?</h3>
+            <p style={s.modalConfirmTexto}>
+              Esta acción eliminará permanentemente el expediente <strong>{exp.numero_expediente}</strong> junto con sus tareas asociadas. No se puede deshacer.
+            </p>
+            {errorEliminar && (
+              <p style={{ color: T.red, fontSize: 12.5, marginTop: 8, marginBottom: 0 }}>{errorEliminar}</p>
+            )}
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
+              <button style={s.btnSecundario} onClick={() => setConfirmarEliminar(false)} disabled={eliminando}>
+                Cancelar
+              </button>
+              <button style={s.btnPeligroSolido} onClick={manejarEliminar} disabled={eliminando}>
+                {eliminando ? 'Eliminando...' : 'Sí, eliminar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -503,7 +580,8 @@ function getStyles(T: typeof T_DARK, oscuro: boolean) {
     }),
     actions: {
       display: 'flex',
-      justifyContent: 'flex-end',
+      justifyContent: 'space-between',
+      alignItems: 'center',
       gap: 12,
       flexWrap: 'wrap' as const,
       marginTop: 8,
@@ -539,6 +617,81 @@ function getStyles(T: typeof T_DARK, oscuro: boolean) {
       cursor: 'pointer',
       whiteSpace: 'nowrap' as const,
       transition: 'background 0.2s',
+    } as React.CSSProperties,
+    // 🗑️ Botón de eliminar (outline rojo) en la barra de acciones
+    btnPeligro: {
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+      padding: '10px 20px',
+      background: T.redAlpha,
+      color: T.red,
+      border: `0.5px solid ${T.red}40`,
+      borderRadius: 8,
+      fontSize: 13.5,
+      fontWeight: 600,
+      cursor: 'pointer',
+      whiteSpace: 'nowrap' as const,
+      transition: 'background 0.2s',
+    } as React.CSSProperties,
+    // 🗑️ Botón sólido rojo dentro del modal de confirmación
+    btnPeligroSolido: {
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+      padding: '10px 20px',
+      background: T.red,
+      color: '#fff',
+      border: 'none',
+      borderRadius: 8,
+      fontSize: 13.5,
+      fontWeight: 600,
+      cursor: 'pointer',
+      whiteSpace: 'nowrap' as const,
+    } as React.CSSProperties,
+    overlay: {
+      position: 'fixed' as const,
+      inset: 0,
+      background: oscuro ? 'rgba(6,10,18,0.8)' : 'rgba(0,0,0,0.4)',
+      backdropFilter: 'blur(4px)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: '12px',
+      zIndex: 300,
+    } as React.CSSProperties,
+    modalConfirm: {
+      background: T.surface,
+      border: `1px solid ${T.border}`,
+      borderRadius: 14,
+      padding: '24px',
+      width: '100%',
+      maxWidth: 380,
+      boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)',
+    } as React.CSSProperties,
+    modalConfirmIcon: {
+      width: 44,
+      height: 44,
+      borderRadius: '50%',
+      background: T.redAlpha,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: 14,
+    } as React.CSSProperties,
+    modalConfirmTitulo: {
+      fontSize: 16,
+      fontWeight: 700,
+      color: T.textPrimary,
+      margin: '0 0 8px',
+    } as React.CSSProperties,
+    modalConfirmTexto: {
+      fontSize: 13.5,
+      color: T.textMuted,
+      lineHeight: 1.6,
+      margin: 0,
     } as React.CSSProperties,
   }
 }
