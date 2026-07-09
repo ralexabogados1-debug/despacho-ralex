@@ -115,13 +115,26 @@ function initSchema(db: Database) {
       updated_at  INTEGER
     );
 
-    -- 🆕 Catálogo de materias (Civil, Familiar, Penal, Amparo, etc.)
+    -- Catálogo de materias (Civil, Familiar, Penal, Amparo, etc.)
     -- Necesaria para el filtro "juzgados por materia" en Amparo offline.
     CREATE TABLE IF NOT EXISTS materias (
       id          INTEGER PRIMARY KEY,
       nombre      TEXT,
       sync_status TEXT DEFAULT 'synced',
       updated_at  INTEGER
+    );
+
+    -- 🆕 Calendario de audiencias/eventos por usuario (para "Mi Perfil")
+    CREATE TABLE IF NOT EXISTS eventos_calendario (
+      id            INTEGER PRIMARY KEY,
+      expediente_id INTEGER,
+      usuario_id    INTEGER,
+      titulo        TEXT,
+      tipo_evento   TEXT,
+      fecha_hora    TEXT,
+      descripcion   TEXT,
+      sync_status   TEXT DEFAULT 'synced',
+      updated_at    INTEGER
     );
 
     CREATE TABLE IF NOT EXISTS ministerios_publicos (
@@ -139,8 +152,6 @@ function initSchema(db: Database) {
       descripcion           TEXT,
       fecha_vencimiento     TEXT,
       completada            INTEGER DEFAULT 0,
-      -- 🆕 estado_kanban: necesario para el tablero de Tareas (Por Hacer / En Progreso / Completada).
-      -- Sin esta columna, TableroTareasCliente no puede clasificar las tareas en columnas offline.
       estado_kanban         TEXT,
       eliminada             INTEGER DEFAULT 0,
       sync_status           TEXT DEFAULT 'synced',
@@ -264,9 +275,7 @@ function migrarSchema(db: Database) {
     );
   `)
 
-  // 🆕 materias (usuarios con BD anterior a este cambio)
-  // Esta es la tabla que faltaba y causaba "no such table: materias"
-  // en el selector de juzgados de Amparo offline.
+  // materias (usuarios con BD anterior a este cambio)
   db.run(`
     CREATE TABLE IF NOT EXISTS materias (
       id          INTEGER PRIMARY KEY,
@@ -275,6 +284,24 @@ function migrarSchema(db: Database) {
       updated_at  INTEGER
     );
   `)
+
+  // 🆕 eventos_calendario / actividad_reciente (usuarios con BD anterior a este cambio)
+  // Sin esto, queryPerfilLocal() fallaría con "no such table" en dispositivos
+  // que ya tenían una DB local guardada antes de agregar "Mi Perfil".
+  db.run(`
+    CREATE TABLE IF NOT EXISTS eventos_calendario (
+      id            INTEGER PRIMARY KEY,
+      expediente_id INTEGER,
+      usuario_id    INTEGER,
+      titulo        TEXT,
+      tipo_evento   TEXT,
+      fecha_hora    TEXT,
+      descripcion   TEXT,
+      sync_status   TEXT DEFAULT 'synced',
+      updated_at    INTEGER
+    );
+  `)
+
 
   agregarColumnaSiFalta(db, 'expedientes', 'ultima_actuacion', 'TEXT')
 
@@ -288,7 +315,7 @@ function migrarSchema(db: Database) {
   agregarColumnaSiFalta(db, 'expedientes_amparo', 'estadio_procesal', 'TEXT')
   agregarColumnaSiFalta(db, 'expedientes_amparo', 'proxima_audiencia', 'TEXT')
 
-  // 🆕 estado_kanban (usuarios con BD anterior a este cambio) — sin esta
+  // estado_kanban (usuarios con BD anterior a este cambio) — sin esta
   // columna el tablero de Tareas no puede clasificar filas offline en
   // Por Hacer / En Progreso / Completada.
   agregarColumnaSiFalta(db, 'tareas', 'estado_kanban', 'TEXT')

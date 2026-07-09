@@ -3,6 +3,8 @@
 import { useState } from 'react'
 import { useExpedientes } from '@/hooks/useExpedientes'
 import { useTema } from '@/app/sistema/layout' // ajusta la ruta si es necesario
+import { crearExpedienteAmparoLocal } from '@/lib/dbHelpers'
+import { syncConSupabase } from '@/lib/sync'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 🎨 TOKENS OSCUROS (Amparo - dorado)
@@ -53,16 +55,24 @@ export default function ClienteAmparos({
   juzgados,
   abogados,
   amparos,
+  onCreado,
 }: {
   juzgados: Juzgado[]
   abogados: Abogado[]
   amparos:  any[]
+  // ✅ NUEVO: callback que recarga la lista en el padre (page.tsx) tras
+  // crear un expediente. Sin esto, "amparos" se queda congelado con los
+  // datos con los que se montó la página, aunque el registro ya exista
+  // en SQLite (y eventualmente en Supabase).
+  onCreado?: () => Promise<void> | void
 }) {
   const { oscuro } = useTema()
   const T = oscuro ? T_DARK : T_LIGHT
 
-  // 🔄 Hook offline-first — guarda en SQLite + cola de sync automáticamente
-  const { guardar: guardarAmparo, isOnline } = useExpedientes('expedientes_amparo')
+  // 🔄 Se sigue usando SOLO para el estado isOnline (mismo patrón visual
+  // que ya tenías). Ya NO se usa su guardar() para crear el amparo —
+  // ver nota en manejarSubmit().
+  const { isOnline } = useExpedientes('expedientes_amparo')
 
   const [abierto,    setAbierto]    = useState(false)
   const [busqueda,   setBusqueda]   = useState('')
@@ -106,40 +116,56 @@ export default function ClienteAmparos({
 
   // ─────────────────────────────────────────────────────────────────────────
   // 🔄 Crear amparo — funciona online y offline vía SQLite + sync_queue
-  // Genera ID temporal local (negativo) si está offline; el sync lo resuelve
+  //
+  // ✅ CORREGIDO (bug "no column named id"): antes llamaba dos veces a
+  // guardarAmparo() (guardar() de useExpedientes('expedientes_amparo')),
+  // con un objeto pensado para "expedientes" pero enviado a la tabla
+  // "expedientes_amparo". Ahora usa crearExpedienteAmparoLocal(), que
+  // escribe cada objeto en su tabla correcta.
+  //
+  // ✅ NUEVO: al terminar, llama a onCreado() para que page.tsx recargue
+  // la lista (antes el nuevo expediente no aparecía hasta refrescar la
+  // página a mano, porque "amparos" es un useState que solo se llenaba
+  // una vez, al montar).
+  //
+  // ⚠️ Este componente no recibe el id local del usuario actual como prop,
+  // así que por ahora no se crea el registro en expediente_abogados (igual
+  // que en la versión anterior). Si agregas un prop `usuarioActualId`,
+  // pásalo como creadoPorId abajo.
   // ─────────────────────────────────────────────────────────────────────────
   async function manejarSubmit(formData: FormData) {
     setError(null)
     setGuardando(true)
     try {
-      const idTemporal = -Date.now() // ID temporal único mientras no hay red
+      await crearExpedienteAmparoLocal(
+        {
+          cliente_nombre: formData.get('quejoso_nombre') as string,
+          numero_expediente: formData.get('numero_expediente') as string,
+          fecha_presentacion: (formData.get('fecha_presentacion') as string) || null,
+          estado: 'Activo',
+          juzgado_id: Number(formData.get('juzgado_id')) || null,
+          tipo_amparo: formData.get('tipo_amparo') as string,
+          autoridad_responsable: (formData.get('autoridad_responsable') as string) || null,
+          acto_reclamado: (formData.get('acto_reclamado') as string) || null,
+          tercero_interesado: (formData.get('tercero_interesado') as string) || null,
+          estadio_procesal: (formData.get('estadio_procesal') as string) || null,
+          proxima_audiencia: (formData.get('proxima_audiencia') as string) || null,
+          abogado_id: null,
+          descripcion: null,
+        },
+        null // creadoPorId — no hay prop de usuario actual en este componente todavía
+      )
 
-      // 1. Cliente (Quejoso) — usa el hook de clientes si lo tienes, o inserción directa
-      //    Aquí asumimos que el id de cliente se resuelve igual con id temporal
-      const clienteIdTemporal = -(Date.now() + 1)
+      // Igual que Civil: si hay conexión, se intenta subir de inmediato.
+      // Si no, queda en sync_queue y se sube solo cuando vuelva la conexión.
+      if (navigator.onLine) {
+        await syncConSupabase()
+      }
 
-      // 2. Expediente base
-      await guardarAmparo({
-        id:                 idTemporal,
-        numero_expediente:  formData.get('numero_expediente') as string,
-        fecha_inicio:       (formData.get('fecha_presentacion') as string) || null,
-        materia_id:         null, // se resuelve en sync si tu backend lo requiere por nombre
-        cliente_id:         clienteIdTemporal,
-        juzgado_id:         Number(formData.get('juzgado_id')) || null,
-        estado:             'Activo',
-        descripcion:        (formData.get('descripcion') as string) || null,
-      })
-
-      // 3. Datos específicos de amparo (tabla hija) — incluye campos nuevos
-      await guardarAmparo({
-        expediente_id:          idTemporal,
-        tipo_amparo:            formData.get('tipo_amparo') as string,
-        autoridad_responsable:  formData.get('autoridad_responsable') as string,
-        acto_reclamado:         formData.get('acto_reclamado') as string,
-        tercero_interesado:     (formData.get('tercero_interesado') as string) || null,
-        estadio_procesal:       (formData.get('estadio_procesal') as string) || null,
-        proxima_audiencia:      (formData.get('proxima_audiencia') as string) || null,
-      })
+      // 🔄 Recargar la lista del padre — ya sea desde Supabase (si está
+      // online) o desde SQLite (si está offline), según cómo resuelva
+      // "cargar()" en page.tsx.
+      await onCreado?.()
 
       setMensaje('Juicio de amparo registrado de manera exitosa.')
       setAbierto(false)

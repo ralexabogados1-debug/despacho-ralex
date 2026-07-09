@@ -1,8 +1,12 @@
 'use client'
 
-import { useState, useMemo } from 'react'
-import { crearEventoRapido, actualizarEvento, eliminarEvento } from './actions'
+import { useMemo, useState } from 'react'
+import { createBrowserClient } from '@supabase/ssr'
 import { useTema } from '@/app/sistema/layout' // Ajusta la ruta si es necesario
+import { useEventos } from '@/hooks/useEventos'
+import { leerSesionLocal } from '@/lib/authLocal'
+import { generarIdTemporal, obtenerUsuarioLocalPorEmail } from '@/lib/dbHelpers'
+import { mapearEventosCrudos, type EventoUI } from '@/lib/eventosUtils'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 🎨 TOKENS OSCUROS
@@ -49,14 +53,7 @@ const COLOR_TIPO: Record<string, { bg: string; text: string; dot: string }> = {
   'Tarea/Pendiente': { bg: 'rgba(58,95,184,0.14)',  text: '#8fa8e0', dot: '#3a5fb8' },
 }
 
-interface Evento {
-  id:         number
-  titulo:     string
-  fecha:      string
-  hora:       string
-  tipo:       string
-  expediente: string | null
-}
+type Evento = EventoUI
 
 export default function CalendarioCliente({
   eventosIniciales,
@@ -68,8 +65,51 @@ export default function CalendarioCliente({
   const { oscuro } = useTema()
   const T = oscuro ? T_DARK : T_LIGHT
 
+  // ── Datos: local-first ──────────────────────────────────────────────────
+  // El hook lee/escribe siempre contra SQLite local y sincroniza con
+  // Supabase cuando hay conexión. `datos` trae el shape crudo (igual al
+  // select anidado de Supabase); se mapea al mismo shape que usa la UI.
+  const { eventos: eventosLocalesCrudos, guardar, eliminar, isOnline } = useEventos()
+  const eventosLocalesMapeados = useMemo(
+    () => mapearEventosCrudos(eventosLocalesCrudos as any),
+    [eventosLocalesCrudos]
+  )
+
+  // `eventosServidor` arranca con lo que trajo page.tsx (online u offline)
+  // y se refresca tras cada mutación exitosa mientras haya conexión, para
+  // no depender de un reload de página para ver los cambios reflejados.
+  const [eventosServidor, setEventosServidor] = useState<Evento[]>(eventosIniciales)
+
+  const supabase = useMemo(
+    () =>
+      createBrowserClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      ),
+    []
+  )
+
+  const recargarServidor = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('eventos')
+        .select(`id, titulo, fecha_hora, tipo_evento, expedientes ( numero_expediente )`)
+      if (error) {
+        console.error('🔴 Error recargando eventos:', error)
+        return
+      }
+      setEventosServidor(mapearEventosCrudos(data as any))
+    } catch (e) {
+      console.error('Error recargando eventos:', e)
+    }
+  }
+
+  // 13.1 punto 6: datosActivos = isOnline ? datosDelServidor : datosLocales
+  const eventosActivos = (isOnline ? eventosServidor : eventosLocalesMapeados) ?? []
+
   const [abierto, setAbierto]                       = useState(false)
   const [errorForm, setErrorForm]                   = useState<string | null>(null)
+  const [guardando, setGuardando]                   = useState(false)
   const [filtros, setFiltros]                       = useState({ Audiencia: true, Término: true, 'Tarea/Pendiente': true })
   const [eventoSeleccionado, setEventoSeleccionado] = useState<Evento | null>(null)
   const [fechaBase, setFechaBase]                   = useState(new Date())
@@ -114,11 +154,12 @@ export default function CalendarioCliente({
     setFechaSeleccionada(hoy.toISOString().split('T')[0])
   }
 
-  const eventosFiltrados     = eventosIniciales.filter(e => filtros[e.tipo as keyof typeof filtros])
-  const eventosDelDia        = eventosFiltrados.filter(e => e.fecha === fechaSeleccionada)
-  const proximoEventoCritico = eventosFiltrados
+  const eventosFiltrados = eventosActivos.filter(e => filtros[e.tipo as keyof typeof filtros])
+  const eventosDelDia    = eventosFiltrados.filter(e => e.fecha === fechaSeleccionada)
+
+  const eventosProximos = eventosFiltrados
     .filter(e => e.fecha >= fechaSeleccionada)
-    .sort((a, b) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime())[0]
+    .sort((a, b) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime())
 
   const abrirNuevoEvento = () => {
     setEventoSeleccionado(null)
@@ -133,12 +174,70 @@ export default function CalendarioCliente({
     setAbierto(true)
   }
 
+  // ── Guardar (crear o editar) — local-first ──────────────────────────────
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    setErrorForm(null)
+
+    const fd = new FormData(e.currentTarget)
+    const tipo        = fd.get('tipo_evento') as string
+    const descripcion = fd.get('descripcion') as string
+    const fechaHora   = fd.get('fecha_hora') as string
+    const expRaw      = fd.get('expediente_id')
+    const expedienteId = expRaw && expRaw !== '' ? Number(expRaw) : null
+
+    if (!descripcion || !fechaHora) {
+      setErrorForm('Completa el título y la fecha del evento.')
+      return
+    }
+
+    setGuardando(true)
+    try {
+      // Resolver el id numérico (tabla usuarios) del usuario actual a
+      // partir de su email, ya que la sesión local no guarda el id de
+      // Postgres directamente.
+      let usuarioId: number | null = null
+      const sesion = leerSesionLocal()
+      if (sesion?.email) {
+        const usuarioLocal = await obtenerUsuarioLocalPorEmail(sesion.email)
+        usuarioId = usuarioLocal?.id ?? null
+      }
+
+      const item = {
+        id: eventoSeleccionado ? eventoSeleccionado.id : generarIdTemporal(),
+        expediente_id: expedienteId,
+        usuario_id: usuarioId,
+        titulo: descripcion,
+        tipo_evento: tipo,
+        fecha_hora: fechaHora,
+        descripcion: null as string | null,
+      }
+
+      await guardar(item)
+      if (isOnline) await recargarServidor()
+      setAbierto(false)
+    } catch (err) {
+      console.error('Error al guardar evento:', err)
+      setErrorForm('No se pudo guardar el evento. Intenta de nuevo.')
+    } finally {
+      setGuardando(false)
+    }
+  }
+
   const handleEliminar = async () => {
     if (!eventoSeleccionado) return
-    if (confirm('¿Eliminar este evento?')) {
-      const res = await eliminarEvento(eventoSeleccionado.id)
-      if (res?.error) setErrorForm(res.error)
-      else setAbierto(false)
+    if (!confirm('¿Eliminar este evento?')) return
+
+    setGuardando(true)
+    try {
+      await eliminar(String(eventoSeleccionado.id))
+      if (isOnline) await recargarServidor()
+      setAbierto(false)
+    } catch (err) {
+      console.error('Error al eliminar evento:', err)
+      setErrorForm('No se pudo eliminar el evento. Intenta de nuevo.')
+    } finally {
+      setGuardando(false)
     }
   }
 
@@ -170,6 +269,10 @@ export default function CalendarioCliente({
         .celda-texto  { display: flex; flex-direction: column; gap: 2px; overflow: hidden; flex: 1; min-height: 0; }
         .celda-dot    { display: none; gap: 3px; margin-top: 2px; flex-wrap: wrap; }
         .panel-lateral { display: flex; }
+
+        .lista-proximos::-webkit-scrollbar { width: 5px; }
+        .lista-proximos::-webkit-scrollbar-track { background: transparent; }
+        .lista-proximos::-webkit-scrollbar-thumb { background: ${T.border}; border-radius: 10px; }
 
         @media (max-width: 1024px) {
           .cal-grid      { grid-template-columns: 1fr; }
@@ -359,31 +462,53 @@ export default function CalendarioCliente({
               )}
             </div>
 
-            <h3 style={{ fontSize: 13, margin: '0 0 10px', fontWeight: 600 }}>Urgente / Próximo</h3>
-            {proximoEventoCritico ? (
-              <div
-                onClick={(evt) => abrirEditarEvento(proximoEventoCritico, evt)}
-                style={{
-                  background: T.redAlpha, border: `0.5px solid ${T.red}44`,
-                  borderRadius: 12, padding: 14, display: 'flex', gap: 12, cursor: 'pointer',
-                }}
-              >
-                <div style={{
-                  background: `${T.red}22`, color: T.red,
-                  padding: '6px 10px', borderRadius: 8,
-                  textAlign: 'center', minWidth: 32, flexShrink: 0,
-                }}>
-                  <div style={{ fontSize: 16, fontWeight: 700 }}>{proximoEventoCritico.fecha.split('-')[2]}</div>
-                  <div style={{ fontSize: 9, textTransform: 'uppercase' }}>
-                    {mesesNombres[new Date(proximoEventoCritico.fecha + 'T00:00:00').getMonth()].substring(0, 3)}
-                  </div>
-                </div>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600 }}>{proximoEventoCritico.titulo}</div>
-                  <div style={{ fontSize: 11, color: T.textMuted, marginTop: 2 }}>
-                    {proximoEventoCritico.tipo}{proximoEventoCritico.hora ? ` · ${proximoEventoCritico.hora}` : ''}
-                  </div>
-                </div>
+            <h3 style={{ fontSize: 13, margin: '0 0 10px', fontWeight: 600 }}>Próximos eventos</h3>
+            {eventosProximos.length > 0 ? (
+              <div className="lista-proximos" style={{
+                display: 'flex', flexDirection: 'column', gap: 6,
+                maxHeight: 240, overflowY: 'auto', paddingRight: 4,
+              }}>
+                {eventosProximos.map(ev => {
+                  const c = COLOR_TIPO[ev.tipo] || { text: '#fff', dot: '#fff' }
+                  const esHoyEv = ev.fecha === new Date().toISOString().split('T')[0]
+                  return (
+                    <div
+                      key={ev.id}
+                      onClick={(evt) => abrirEditarEvento(ev, evt)}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 10,
+                        background: esHoyEv ? T.redAlpha : T.surfaceLow,
+                        border: `0.5px solid ${esHoyEv ? T.red + '44' : T.border}`,
+                        borderRadius: 8, padding: '7px 10px', cursor: 'pointer',
+                      }}
+                    >
+                      <div style={{
+                        background: esHoyEv ? `${T.red}22` : `${c.dot}22`,
+                        color: esHoyEv ? T.red : c.dot,
+                        borderRadius: 6, padding: '3px 6px',
+                        textAlign: 'center', minWidth: 28, flexShrink: 0,
+                      }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, lineHeight: 1 }}>
+                          {ev.fecha.split('-')[2]}
+                        </div>
+                        <div style={{ fontSize: 8, textTransform: 'uppercase' }}>
+                          {mesesNombres[new Date(ev.fecha + 'T00:00:00').getMonth()].substring(0, 3)}
+                        </div>
+                      </div>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{
+                          fontSize: 12, fontWeight: 600,
+                          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                        }}>
+                          {ev.titulo}
+                        </div>
+                        <div style={{ fontSize: 10, color: T.textMuted, marginTop: 1 }}>
+                          {ev.tipo}{ev.hora ? ` · ${ev.hora}` : ''}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
             ) : (
               <div style={styles.cajaVacia}>Sin términos próximos</div>
@@ -405,7 +530,7 @@ export default function CalendarioCliente({
             alignItems: 'flex-start', justifyContent: 'center',
             padding: '24px 16px', overflowY: 'auto', zIndex: 100,
           }}
-          onClick={() => setAbierto(false)}
+          onClick={() => !guardando && setAbierto(false)}
         >
           <div
             style={{
@@ -428,14 +553,7 @@ export default function CalendarioCliente({
               </p>
             )}
 
-            <form action={async (fd) => {
-              setErrorForm(null)
-              const res = eventoSeleccionado
-                ? await actualizarEvento(eventoSeleccionado.id, fd)
-                : await crearEventoRapido(fd)
-              if (res?.error) setErrorForm(res.error)
-              else setAbierto(false)
-            }}>
+            <form onSubmit={handleSubmit}>
 
               <div style={{ marginBottom: 14 }}>
                 <label style={styles.label}>Categoría</label>
@@ -480,18 +598,18 @@ export default function CalendarioCliente({
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
                 <div style={{ display: 'flex', gap: 12 }}>
                   {eventoSeleccionado && (
-                    <button type="button" onClick={handleEliminar}
-                      style={{ background: 'transparent', color: T.red, border: 'none', cursor: 'pointer', fontSize: 13, padding: 0 }}>
+                    <button type="button" onClick={handleEliminar} disabled={guardando}
+                      style={{ background: 'transparent', color: T.red, border: 'none', cursor: guardando ? 'default' : 'pointer', fontSize: 13, padding: 0, opacity: guardando ? 0.5 : 1 }}>
                       Eliminar
                     </button>
                   )}
-                  <button type="button" onClick={() => setAbierto(false)}
-                    style={{ background: 'transparent', color: T.textMuted, border: 'none', cursor: 'pointer', fontSize: 13, padding: 0 }}>
+                  <button type="button" onClick={() => setAbierto(false)} disabled={guardando}
+                    style={{ background: 'transparent', color: T.textMuted, border: 'none', cursor: guardando ? 'default' : 'pointer', fontSize: 13, padding: 0 }}>
                     Cancelar
                   </button>
                 </div>
-                <button type="submit" style={{ ...styles.btnPrimary, width: 'auto', padding: '10px 24px' }}>
-                  {eventoSeleccionado ? 'Guardar' : 'Agendar'}
+                <button type="submit" disabled={guardando} style={{ ...styles.btnPrimary, width: 'auto', padding: '10px 24px', opacity: guardando ? 0.7 : 1 }}>
+                  {guardando ? 'Guardando…' : eventoSeleccionado ? 'Guardar' : 'Agendar'}
                 </button>
               </div>
             </form>

@@ -1,57 +1,165 @@
-import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
+'use client'
+
+import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { createBrowserClient } from '@supabase/ssr'
+import { leerSesionLocal } from '@/lib/authLocal'
+import { query, queryPerfilLocal, obtenerUsuarioLocalPorEmail } from '@/lib/dbHelpers'
 import PerfilUsuarioCliente from './cliente'
 
-export default async function MiPerfilPage() {
-  const supabase = await createClient()
+async function getUserConTimeout(supabase: ReturnType<typeof createBrowserClient>, ms = 4000) {
+  try {
+    const resultado = await Promise.race([
+      supabase.auth.getUser(),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), ms)),
+    ])
+    if (!resultado || !('data' in resultado)) return null
+    return resultado.data.user ?? null
+  } catch {
+    return null
+  }
+}
 
-  const { data: { user: authUser } } = await supabase.auth.getUser()
-  if (!authUser) redirect('/login')
+export default function MiPerfilPage() {
+  const router = useRouter()
+  const supabase = createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  )
 
-  const { data: miPerfil } = await supabase
-    .from('usuarios')
-    .select('*')
-    .eq('auth_id', authUser.id)
-    .single()
+  const [usuario, setUsuario]             = useState<any>(null)
+  const [expedientes, setExpedientes]     = useState<any[]>([])
+  const [conteoTareas, setConteoTareas]   = useState(0)
+  const [conteoEventos, setConteoEventos] = useState(0)
+  const [actividad, setActividad]         = useState<any[]>([])
+  const [loading, setLoading]             = useState(true)
+  const [esOffline, setEsOffline]         = useState(false)
 
-  if (!miPerfil) redirect('/login')
+  useEffect(() => {
+    const cargar = async () => {
+      const sesionLocal = leerSesionLocal()
+      const cacheValido = sesionLocal && sesionLocal.expires_at > Date.now()
 
-  const miId = miPerfil.id
+      const usarDatosLocales = async (email: string) => {
+        try {
+          const perfilLocal = await obtenerUsuarioLocalPorEmail(email)
+          if (!perfilLocal) { router.push('/login'); return }
 
-  // Consultar amparos asignados
-  const { data: expedientes } = await supabase
-    .from('expedientes_amparo')
-    .select('*')
-    .eq('abogado_responsable_id', miId)
+          const [usuarioRow] = await query<any>('SELECT * FROM usuarios WHERE id = ?', [perfilLocal.id])
+          const local = await queryPerfilLocal(perfilLocal.id)
 
-  // Consultar tareas activas
-  const { data: tareas } = await supabase
-    .from('tareas')
-    .select('id')
-    .eq('asignado_a_id', miId)
-    .eq('estado', 'Por hacer')
+          setUsuario(usuarioRow ?? null)
+          setExpedientes(local.expedientes)
+          setConteoTareas(local.conteoTareas)
+          setConteoEventos(local.conteoEventos)
+          setActividad(local.actividad)
+        } catch (e) {
+          console.error('SQLite error (mi-perfil):', e)
+        }
+        setEsOffline(true)
+        setLoading(false)
+      }
 
-  // Consultar audiencias o términos próximos
-  const { data: eventos } = await supabase
-    .from('eventos_calendario')
-    .select('id')
-    .eq('expediente_id', miId)
+      const user = await getUserConTimeout(supabase)
 
-  // Consultar historial
-  const { data: actividades } = await supabase
-    .from('actividad_reciente')
-    .select('*')
-    .eq('usuario_id', miId)
-    .order('created_at', { ascending: false })
-    .limit(3)
+      if (!user) {
+        if (!cacheValido || !sesionLocal?.email) { router.push('/login'); return }
+        await usarDatosLocales(sesionLocal.email)
+        return
+      }
+
+      try {
+        const { data: miPerfil, error: errPerfil } = await supabase
+          .from('usuarios').select('*').eq('auth_id', user.id).single()
+        if (errPerfil) console.error('🔴 Error cargando perfil:', errPerfil)
+        if (!miPerfil) { router.push('/login'); return }
+
+        const miId = miPerfil.id
+
+        const { data: expedientesData, error: errExp } = await supabase
+          .from('expediente_abogados')
+          .select(`
+            expedientes (
+              id, numero_expediente, estado, contraparte,
+              clientes ( nombre_completo ),
+              materias ( nombre )
+            )
+          `)
+          .eq('usuario_id', miId)
+        if (errExp) console.error('🔴 Error cargando expedientes:', errExp)
+
+        const expedientesNormalizados = (expedientesData ?? [])
+          .map((row: any) => row.expedientes)
+          .filter(Boolean)
+          .map((exp: any) => ({
+            id: exp.id,
+            numero_expediente: exp.numero_expediente,
+            estado_tramite: exp.estado,
+            quejoso: exp.clientes?.nombre_completo ?? null,
+            tipo_amparo: exp.materias?.nombre ?? null,
+          }))
+
+        const { count: conteoTareasData, error: errTareas } = await supabase
+          .from('tareas').select('id', { count: 'exact', head: true })
+          .eq('asignado_a_usuario_id', miId)
+          .neq('estado_kanban', 'Completada')
+        if (errTareas) console.error('🔴 Error cargando tareas:', errTareas)
+
+        const { count: conteoEventosData, error: errEventos } = await supabase
+          .from('eventos_calendario').select('id', { count: 'exact', head: true })
+          .eq('usuario_id', miId)
+        if (errEventos) console.error('🔴 Error cargando eventos:', errEventos)
+
+        const { data: actividadData, error: errActividad } = await supabase
+          .from('actividad_reciente').select('*')
+          .eq('usuario_id', miId).order('created_at', { ascending: false }).limit(3)
+        if (errActividad) console.error('🔴 Error cargando actividad:', errActividad)
+
+        setUsuario(miPerfil)
+        setExpedientes(expedientesNormalizados)
+        setConteoTareas(conteoTareasData ?? 0)
+        setConteoEventos(conteoEventosData ?? 0)
+        setActividad(actividadData ?? [])
+        setLoading(false)
+      } catch (e) {
+        console.error('Mi Perfil error:', e)
+        if (cacheValido && sesionLocal?.email) await usarDatosLocales(sesionLocal.email)
+        else router.push('/login')
+      }
+    }
+    cargar()
+  }, [supabase, router])
+
+  if (loading || !usuario) {
+    return (
+      <div style={{ display: 'flex', minHeight: '60vh', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ width: 24, height: 24, border: '2px solid #4a7fd4', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+        <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+      </div>
+    )
+  }
 
   return (
-    <PerfilUsuarioCliente
-      usuario={miPerfil}
-      expedientes={expedientes ?? []}
-      conteoTareas={tareas?.length ?? 0}
-      conteoEventos={eventos?.length ?? 0}
-      actividad={actividades ?? []}
-    />
+    <div style={{ width: '100%' }}>
+      {esOffline && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 10,
+          background: 'rgba(74,127,212,0.08)', border: '0.5px solid rgba(74,127,212,0.25)',
+          borderRadius: 10, padding: '10px 16px', margin: '16px clamp(16px,4vw,40px) 0',
+        }}>
+          <span style={{ fontSize: 15 }}>📡</span>
+          <span style={{ fontSize: 13, color: '#4a7fd4' }}>
+            Modo sin conexión — mostrando datos guardados localmente.
+          </span>
+        </div>
+      )}
+      <PerfilUsuarioCliente
+        usuario={usuario}
+        expedientes={expedientes}
+        conteoTareas={conteoTareas}
+        conteoEventos={conteoEventos}
+        actividad={actividad}
+      />
+    </div>
   )
 }

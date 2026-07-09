@@ -99,92 +99,97 @@ export default function AmparosPage() {
   const [loading, setLoading]   = useState(true)
   const [esOffline, setEsOffline] = useState(false)
 
-  useEffect(() => {
-    const cargar = async () => {
-      const sesionLocal = leerSesionLocal()
-      const cacheValido = sesionLocal && sesionLocal.expires_at > Date.now()
+  // ✅ NUEVO: la carga se extrae a una función con nombre (antes vivía
+  // solo dentro del useEffect). Así puede volver a llamarse manualmente
+  // después de crear un amparo, sin duplicar la lógica ni esperar a que
+  // el componente se remonte.
+  const cargar = async () => {
+    const sesionLocal = leerSesionLocal()
+    const cacheValido = sesionLocal && sesionLocal.expires_at > Date.now()
 
-      const usarDatosLocales = async () => {
-        try {
-          const local = await cargarAmparosLocales()
-          setJuzgados(local.juzgadosDistrito)
-          setAbogados(local.abogados)
-          setAmparos(local.amparosNormalizados)
-        } catch (e) {
-          console.error('SQLite error (amparo):', e)
-        }
-        setEsOffline(true)
-        setLoading(false)
-      }
-
-      const user = await getUserConTimeout(supabase)
-
-      if (!user) {
-        if (!cacheValido) {
-          router.push('/login')
-          return
-        }
-        await usarDatosLocales()
-        return
-      }
-
+    const usarDatosLocales = async () => {
       try {
-        const { data: materiaAmparo } = await supabase
-          .from('materias').select('id').eq('nombre', 'Amparo').single()
-
-        const { data: juzgadosDistrito } = await supabase
-          .from('juzgados').select('id, nombre, ciudad').eq('materia_id', materiaAmparo?.id ?? -1)
-
-        const { data: abogadosData } = await supabase
-          .from('usuarios').select('id, nombre_completo').eq('rol', 'Abogado').eq('activo', true)
-
-        const { data: expedientesAmparo } = await supabase
-          .from('expedientes')
-          .select(`
-            id, numero_expediente, estado, fecha_inicio, descripcion,
-            clientes ( nombre_completo ),
-            juzgados ( nombre, ciudad ),
-            tareas ( id, fecha_vencimiento, completada ),
-            expedientes_amparo (
-              tipo_amparo, autoridad_responsable, acto_reclamado, tercero_interesado,
-              estadio_procesal, proxima_audiencia
-            )
-          `)
-          .eq('materia_id', materiaAmparo?.id ?? -1)
-          .order('created_at', { ascending: false })
-
-        const amparosNormalizados = (expedientesAmparo ?? []).map((exp: any) => ({
-          id: exp.id,
-          numero_expediente: exp.numero_expediente,
-          estado: exp.estado,
-          fecha_inicio: exp.fecha_inicio,
-          descripcion: exp.descripcion,
-          clientes: exp.clientes ? { nombre_completo: exp.clientes.nombre_completo } : null,
-          juzgados: exp.juzgados ? { nombre: exp.juzgados.nombre, ciudad: exp.juzgados.ciudad } : null,
-          tareas: (exp.tareas ?? []).map((t: any) => ({
-            id: t.id, fecha_vencimiento: t.fecha_vencimiento, completada: t.completada,
-          })),
-          expedientes_amparo: Array.isArray(exp.expedientes_amparo)
-            ? (exp.expedientes_amparo[0] ?? null)
-            : exp.expedientes_amparo,
-        }))
-
-        setJuzgados(juzgadosDistrito ?? [])
-        setAbogados(abogadosData ?? [])
-        setAmparos(amparosNormalizados)
-        setLoading(false)
-
+        const local = await cargarAmparosLocales()
+        setJuzgados(local.juzgadosDistrito)
+        setAbogados(local.abogados)
+        setAmparos(local.amparosNormalizados)
       } catch (e) {
-        console.error('Amparo error:', e)
-        if (cacheValido) {
-          await usarDatosLocales()
-        } else {
-          router.push('/login')
-        }
+        console.error('SQLite error (amparo):', e)
       }
+      setEsOffline(true)
+      setLoading(false)
     }
 
+    const user = await getUserConTimeout(supabase)
+
+    if (!user) {
+      if (!cacheValido) {
+        router.push('/login')
+        return
+      }
+      await usarDatosLocales()
+      return
+    }
+
+    try {
+      const { data: materiaAmparo } = await supabase
+        .from('materias').select('id').eq('nombre', 'Amparo').single()
+
+      const { data: juzgadosDistrito } = await supabase
+        .from('juzgados').select('id, nombre, ciudad').eq('materia_id', materiaAmparo?.id ?? -1)
+
+      const { data: abogadosData } = await supabase
+        .from('usuarios').select('id, nombre_completo').eq('rol', 'Abogado').eq('activo', true)
+
+      const { data: expedientesAmparo } = await supabase
+        .from('expedientes')
+        .select(`
+          id, numero_expediente, estado, fecha_inicio, descripcion,
+          clientes ( nombre_completo ),
+          juzgados ( nombre, ciudad ),
+          tareas ( id, fecha_vencimiento, completada ),
+          expedientes_amparo (
+            tipo_amparo, autoridad_responsable, acto_reclamado, tercero_interesado,
+            estadio_procesal, proxima_audiencia
+          )
+        `)
+        .eq('materia_id', materiaAmparo?.id ?? -1)
+        .order('created_at', { ascending: false })
+
+      const amparosNormalizados = (expedientesAmparo ?? []).map((exp: any) => ({
+        id: exp.id,
+        numero_expediente: exp.numero_expediente,
+        estado: exp.estado,
+        fecha_inicio: exp.fecha_inicio,
+        descripcion: exp.descripcion,
+        clientes: exp.clientes ? { nombre_completo: exp.clientes.nombre_completo } : null,
+        juzgados: exp.juzgados ? { nombre: exp.juzgados.nombre, ciudad: exp.juzgados.ciudad } : null,
+        tareas: (exp.tareas ?? []).map((t: any) => ({
+          id: t.id, fecha_vencimiento: t.fecha_vencimiento, completada: t.completada,
+        })),
+        expedientes_amparo: Array.isArray(exp.expedientes_amparo)
+          ? (exp.expedientes_amparo[0] ?? null)
+          : exp.expedientes_amparo,
+      }))
+
+      setJuzgados(juzgadosDistrito ?? [])
+      setAbogados(abogadosData ?? [])
+      setAmparos(amparosNormalizados)
+      setLoading(false)
+
+    } catch (e) {
+      console.error('Amparo error:', e)
+      if (cacheValido) {
+        await usarDatosLocales()
+      } else {
+        router.push('/login')
+      }
+    }
+  }
+
+  useEffect(() => {
     cargar()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [supabase, router])
 
   if (loading) {
@@ -214,6 +219,7 @@ export default function AmparosPage() {
         juzgados={juzgados}
         abogados={abogados}
         amparos={amparos}
+        onCreado={cargar}
       />
     </div>
   )

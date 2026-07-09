@@ -1,8 +1,9 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useTema } from '@/app/sistema/layout' // Ajusta la ruta si es necesario
+import { actualizarPerfilUsuario } from './actions' // Ajusta la ruta si es necesario
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 🎨 TOKENS OSCUROS
@@ -63,6 +64,9 @@ export default function PerfilUsuarioCliente({ usuario, expedientes, conteoTarea
   const T = oscuro ? T_DARK : T_LIGHT
   const router = useRouter()
 
+  const [modalAbierto, setModalAbierto] = useState(false)
+  const [errorForm, setErrorForm]       = useState<string | null>(null)
+
   const styles = useMemo(() => getStyles(T, oscuro), [T, oscuro])
 
   const formatearFecha = (fechaStr: string) => {
@@ -71,6 +75,11 @@ export default function PerfilUsuarioCliente({ usuario, expedientes, conteoTarea
   }
 
   const iniciales = usuario.nombre_completo?.split(' ').slice(0, 2).map((w: string) => w[0]).join('').toUpperCase() ?? 'US'
+
+  const abrirEdicion = () => {
+    setErrorForm(null)
+    setModalAbierto(true)
+  }
 
   return (
     <div style={styles.root}>
@@ -104,7 +113,7 @@ export default function PerfilUsuarioCliente({ usuario, expedientes, conteoTarea
           <button style={styles.btnOutline}>
             Desactivar
           </button>
-          <button style={styles.btnPrimario}>
+          <button style={styles.btnPrimario} onClick={abrirEdicion}>
             Editar perfil
           </button>
         </div>
@@ -213,6 +222,84 @@ export default function PerfilUsuarioCliente({ usuario, expedientes, conteoTarea
 
         </div>
       </div>
+
+      {/* ── MODAL: EDITAR PERFIL ── */}
+      {modalAbierto && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, background: oscuro ? 'rgba(3,7,18,0.75)' : 'rgba(0,0,0,0.4)',
+            backdropFilter: 'blur(4px)', display: 'flex',
+            alignItems: 'flex-start', justifyContent: 'center',
+            padding: '24px 16px', overflowY: 'auto', zIndex: 100,
+          }}
+          onClick={() => setModalAbierto(false)}
+        >
+          <div
+            style={{
+              background: T.surface, border: `0.5px solid ${T.border}`,
+              borderRadius: 16, padding: 'clamp(20px, 5vw, 28px)',
+              width: '100%', maxWidth: 440, marginTop: 20,
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 style={{ margin: '0 0 4px', fontSize: 18, fontWeight: 600, color: T.textPrimary }}>
+              Editar perfil
+            </h3>
+            <p style={{ color: T.textMuted, fontSize: 12, marginTop: 0, marginBottom: 20 }}>
+              Actualiza tu nombre. El correo electrónico no puede modificarse aquí.
+            </p>
+
+            {errorForm && (
+              <p style={{ color: T.red, background: T.redAlpha, padding: '10px 12px', borderRadius: 8, fontSize: 13, marginBottom: 16 }}>
+                {errorForm}
+              </p>
+            )}
+
+            <form action={async (fd) => {
+              setErrorForm(null)
+              const res = await actualizarPerfilUsuario(fd)
+              if (res?.error) setErrorForm(res.error)
+              else setModalAbierto(false)
+            }}>
+
+              <div style={{ marginBottom: 14 }}>
+                <label style={styles.label}>Nombre completo *</label>
+                <input
+                  name="nombre_completo" required
+                  defaultValue={usuario.nombre_completo ?? ''}
+                  style={styles.input}
+                  placeholder="Ej: Juan Pérez López"
+                />
+              </div>
+
+              <div style={{ marginBottom: 20 }}>
+                <label style={styles.label}>Correo electrónico</label>
+                <input
+                  value={usuario.email ?? ''}
+                  disabled
+                  style={{ ...styles.input, opacity: 0.5, cursor: 'not-allowed' }}
+                />
+              </div>
+
+              {/*
+                Cuando agreguemos telefono/direccion a la tabla "usuarios",
+                aquí se insertan los inputs correspondientes y se envían
+                a actualizarPerfilUsuario junto con nombre_completo.
+              */}
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+                <button type="button" onClick={() => setModalAbierto(false)}
+                  style={{ background: 'transparent', color: T.textMuted, border: 'none', cursor: 'pointer', fontSize: 13, padding: '10px 8px' }}>
+                  Cancelar
+                </button>
+                <button type="submit" style={{ ...styles.btnPrimario, padding: '10px 24px' }}>
+                  Guardar cambios
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -324,6 +411,25 @@ function getStyles(T: typeof T_DARK, oscuro: boolean) {
       borderRadius: 12,
       padding: '14px 16px',
       textAlign: 'center' as const,
+    } as React.CSSProperties,
+    label: {
+      display: 'block',
+      fontSize: 12,
+      color: T.textMuted,
+      marginBottom: 6,
+      fontWeight: 500,
+    } as React.CSSProperties,
+    input: {
+      width: '100%',
+      padding: '10px 12px',
+      border: `0.5px solid ${T.border}`,
+      borderRadius: 8,
+      background: T.surfaceHover,
+      color: T.textPrimary,
+      fontSize: 14,
+      boxSizing: 'border-box' as const,
+      outline: 'none',
+      fontFamily: 'inherit',
     } as React.CSSProperties,
   }
 }

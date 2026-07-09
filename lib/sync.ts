@@ -32,8 +32,6 @@ const COLUMNAS: Record<string, string[]> = {
   juzgados: [
     'id', 'nombre', 'ciudad', 'materia_id',
   ],
-  // 🆕 Catálogo de materias (Civil, Familiar, Penal, Amparo, etc.)
-  // Necesario para que Amparo pueda filtrar juzgados por materia offline.
   materias: [
     'id', 'nombre',
   ],
@@ -51,6 +49,13 @@ const COLUMNAS: Record<string, string[]> = {
   usuarios: [
     'id', 'nombre_completo', 'email', 'rol', 'activo', 'created_at', 'auth_id',
   ],
+  // 🆕 Para "Mi Perfil" — catálogos de solo lectura, nunca se crean offline
+  eventos_calendario: [
+    'id', 'expediente_id', 'usuario_id', 'titulo', 'tipo_evento', 'fecha_hora', 'descripcion',
+  ],
+  actividad_reciente: [
+    'id', 'usuario_id', 'descripcion', 'created_at',
+  ],
 }
 
 const PK: Record<string, string> = {
@@ -66,14 +71,17 @@ const PK: Record<string, string> = {
   tareas:               'id',
   eventos:              'id',
   usuarios:             'id',
+  eventos_calendario:   'id', // 🆕
+  actividad_reciente:   'id', // 🆕
 }
 
 // Tablas cuyo PK es autogenerado por Postgres y puede llegar con un ID
 // temporal negativo (creado offline) que hay que reconciliar tras el insert real.
 // 'tareas' se agrega porque ahora Civil crea tareas offline (término legal),
 // igual que clientes/expedientes su id es SERIAL en Postgres.
-// juzgados y materias NO entran aquí: son catálogos de solo lectura, nunca se crean offline.
-const TABLAS_CON_ID_AUTOGENERADO = ['clientes', 'expedientes', 'tareas']
+// juzgados, materias, eventos_calendario y actividad_reciente NO entran aquí:
+// son catálogos de solo lectura, nunca se crean offline.
+const TABLAS_CON_ID_AUTOGENERADO = ['clientes', 'expedientes', 'tareas', 'eventos']
 
 // Mapa: columna FK → tabla a la que apunta
 const FK_ORIGEN: Record<string, string> = {
@@ -93,13 +101,14 @@ const FKS_POR_TABLA: Record<string, string[]> = {
 }
 
 // Orden de subida: padres antes que hijos.
-// 🆕 'materias' entra junto a los otros catálogos, antes de 'expedientes'
-// (expedientes.materia_id depende de ella).
+// 🆕 'eventos_calendario' y 'actividad_reciente' entran al final, junto a
+// los demás catálogos de lectura para "Mi Perfil".
 const ORDEN_SYNC = [
   'clientes', 'jueces', 'juzgados', 'materias', 'ministerios_publicos', 'usuarios',
   'expedientes',
   'expedientes_penales', 'expedientes_civiles', 'expedientes_amparo',
   'expediente_abogados', 'tareas', 'eventos',
+  'eventos_calendario', 'actividad_reciente',
 ]
 
 const TABLAS = Object.keys(COLUMNAS)

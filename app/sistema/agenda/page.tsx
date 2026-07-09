@@ -1,56 +1,119 @@
-// app/calendario/page.tsx
-import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
+'use client'
+
+import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { createBrowserClient } from '@supabase/ssr'
+import { leerSesionLocal } from '@/lib/authLocal'
+import { queryEventosLocal, query } from '@/lib/dbHelpers'
+import { mapearEventosCrudos, type EventoUI } from '@/lib/eventosUtils'
+import BannerOffline from '@/components/BannerOffline'
 import CalendarioCliente from './cliente'
 
-export default async function CalendarioPage() {
-  const supabase = await createClient()
+interface ExpedienteOpcion {
+  id: number
+  numero_expediente: string
+}
 
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
+// ─────────────────────────────────────────────────────────────────────────
+// 🔑 Helper: getUser con timeout — nunca lanza error (mismo patrón que
+// dashboard/civil/amparo)
+// ─────────────────────────────────────────────────────────────────────────
+async function getUserConTimeout(supabase: ReturnType<typeof createBrowserClient>, ms = 4000) {
+  try {
+    const resultado = await Promise.race([
+      supabase.auth.getUser(),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), ms)),
+    ])
+    if (!resultado || !('data' in resultado)) return null
+    return resultado.data.user ?? null
+  } catch {
+    return null
+  }
+}
 
-  const { data: expedientes } = await supabase
-    .from('expedientes')
-    .select('id, numero_expediente')
+export default function CalendarioPage() {
+  const router = useRouter()
+  const supabase = createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  )
 
-  const { data: eventosDB } = await supabase
-    .from('eventos')
-    .select(`
-      id, titulo, fecha_hora, tipo_evento,
-      expedientes ( numero_expediente )
-    `)
+  const [eventos, setEventos] = useState<EventoUI[]>([])
+  const [expedientes, setExpedientes] = useState<ExpedienteOpcion[]>([])
+  const [loading, setLoading] = useState(true)
+  const [esOffline, setEsOffline] = useState(false)
 
-  const eventosEstructurados = (eventosDB ?? []).map((e: any) => {
-    let fechaLimpia = ''
-    let horaLimpia  = ''
+  useEffect(() => {
+    const cargar = async () => {
+      const sesionLocal = leerSesionLocal()
+      const cacheValido = sesionLocal && sesionLocal.expires_at > Date.now()
 
-    if (e.fecha_hora) {
-      const partes = e.fecha_hora.split('T')
-      fechaLimpia  = partes[0]
-      if (partes[1]) {
-        const [h, m] = partes[1].split(':')
-        const horaNum = parseInt(h, 10)
-        const ampm    = horaNum >= 12 ? 'pm' : 'am'
-        const hora12  = horaNum % 12 || 12
-        horaLimpia    = `${hora12}:${m} ${ampm}`
+      const usarDatosLocales = async () => {
+        try {
+          const [eventosLocales, expedientesLocales] = await Promise.all([
+            queryEventosLocal(),
+            query<ExpedienteOpcion>(
+              `SELECT id, numero_expediente FROM expedientes ORDER BY numero_expediente ASC`
+            ),
+          ])
+          setEventos(mapearEventosCrudos(eventosLocales))
+          setExpedientes(expedientesLocales)
+        } catch (e) {
+          console.error('SQLite error (calendario):', e)
+        }
+        setEsOffline(true)
+        setLoading(false)
+      }
+
+      const user = await getUserConTimeout(supabase)
+      if (!user) {
+        if (!cacheValido) {
+          router.push('/login')
+          return
+        }
+        await usarDatosLocales()
+        return
+      }
+
+      try {
+        const { data: expedientesData, error: errorExp } = await supabase
+          .from('expedientes')
+          .select('id, numero_expediente')
+        // 🔴 IMPORTANTE: loguear SIEMPRE el error de cada fetch — nunca
+        // silenciarlo con ?? [], o un fallo de RLS se vuelve indistinguible
+        // de "no hay datos" (ver Arquitectura_Offline sección 12.5).
+        if (errorExp) console.error('🔴 Error cargando expedientes:', errorExp)
+
+        const { data: eventosData, error: errorEv } = await supabase
+          .from('eventos')
+          .select(`id, titulo, fecha_hora, tipo_evento, expedientes ( numero_expediente )`)
+        if (errorEv) console.error('🔴 Error cargando eventos:', errorEv)
+
+        setExpedientes(expedientesData ?? [])
+        setEventos(mapearEventosCrudos(eventosData as any))
+        setLoading(false)
+      } catch (e) {
+        console.error('Calendario error:', e)
+        if (cacheValido) await usarDatosLocales()
+        else router.push('/login')
       }
     }
 
-    return {
-      id:         e.id,
-      titulo:     e.titulo,
-      fecha:      fechaLimpia,
-      hora:       horaLimpia,
-      tipo:       e.tipo_evento ?? 'Tarea/Pendiente',
-      expediente: e.expedientes?.numero_expediente ?? null,
-    }
-  }).filter(ev => ev.fecha !== '')
+    cargar()
+  }, [supabase, router])
 
-  // ✅ Sin wrapper propio — el layout ya provee el fondo y el padding
+  if (loading) {
+    return (
+      <div style={{ padding: 40, textAlign: 'center', color: 'rgba(255,255,255,0.4)' }}>
+        Cargando calendario…
+      </div>
+    )
+  }
+
   return (
-    <CalendarioCliente
-      eventosIniciales={eventosEstructurados}
-      expedientes={expedientes ?? []}
-    />
+    <div>
+      <BannerOffline esOffline={esOffline} />
+      <CalendarioCliente eventosIniciales={eventos} expedientes={expedientes} />
+    </div>
   )
 }

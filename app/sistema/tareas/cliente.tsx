@@ -172,6 +172,7 @@ export default function TableroTareasCliente({
   // 🔧 Eliminar — online: DELETE real en Supabase. Offline: soft-delete local
   // (columna `eliminada`) vía useTareas().eliminar(); el sync se encarga
   // de reflejarlo cuando vuelva la conexión.
+  // 🆕 Ahora se puede llamar desde CUALQUIER columna, no solo Completadas.
   const borrarTarea = async (id: number) => {
     if (!confirm('¿Desea borrar de forma permanente esta tarea?')) return
     setError(null)
@@ -235,6 +236,26 @@ export default function TableroTareasCliente({
           .tar-tabs { overflow-x: auto; flex-wrap: nowrap !important; padding-bottom: 4px; }
           .tar-tabs::-webkit-scrollbar { height: 4px; }
           .tar-kanban { grid-template-columns: 1fr !important; }
+          /* 📱 En mobile cada columna es más baja porque quedan apiladas verticalmente */
+          .tar-col-scroll { max-height: 46vh !important; }
+        }
+        /* 🆕 Scrollbar delgada dentro de cada columna del kanban */
+        .tar-col-scroll {
+          scrollbar-width: thin;
+          scrollbar-color: ${T.border} transparent;
+        }
+        .tar-col-scroll::-webkit-scrollbar {
+          width: 6px;
+        }
+        .tar-col-scroll::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        .tar-col-scroll::-webkit-scrollbar-thumb {
+          background: ${T.border};
+          border-radius: 3px;
+        }
+        .tar-col-scroll::-webkit-scrollbar-thumb:hover {
+          background: ${T.accent}55;
         }
       `}</style>
 
@@ -326,6 +347,14 @@ export default function TableroTareasCliente({
               onCheck={() => cambiarEstado(t.id, 'En Progreso')}
               checked={false}
               T={T}
+              extra={
+                <button
+                  onClick={() => borrarTarea(t.id)}
+                  style={css.btnEliminarTarjeta}
+                >
+                  Eliminar tarea
+                </button>
+              }
             />
           ))}
         </Columna>
@@ -347,12 +376,20 @@ export default function TableroTareasCliente({
               checked={false}
               T={T}
               extra={
-                <button
-                  onClick={() => cambiarEstado(t.id, 'Por Hacer')}
-                  style={{ background: 'transparent', border: 'none', color: T.textFaint, fontSize: 11, padding: 0, cursor: 'pointer', textDecoration: 'underline', marginTop: 6 }}
-                >
-                  Regresar a Por hacer
-                </button>
+                <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' as const }}>
+                  <button
+                    onClick={() => cambiarEstado(t.id, 'Por Hacer')}
+                    style={{ background: 'transparent', border: 'none', color: T.textFaint, fontSize: 11, padding: 0, cursor: 'pointer', textDecoration: 'underline' }}
+                  >
+                    Regresar a Por hacer
+                  </button>
+                  <button
+                    onClick={() => borrarTarea(t.id)}
+                    style={css.btnEliminarTarjeta}
+                  >
+                    Eliminar tarea
+                  </button>
+                </div>
               }
             />
           ))}
@@ -378,7 +415,7 @@ export default function TableroTareasCliente({
               extra={
                 <button
                   onClick={() => borrarTarea(t.id)}
-                  style={{ background: 'transparent', border: 'none', color: T.red, fontSize: 11, padding: 0, cursor: 'pointer', marginTop: 6 }}
+                  style={css.btnEliminarTarjeta}
                 >
                   Eliminar tarea
                 </button>
@@ -475,12 +512,16 @@ function Columna({ titulo, count, color, dot, T, children }: {
       border: `0.5px solid ${T.border}`,
       borderRadius: 12,
       padding: 16,
-      minHeight: '60vh',
+      // 🆕 Altura fija (con tope) en vez de solo minHeight — así las 3 columnas
+      // siempre quedan parejas, sin importar cuántas tareas tenga cada una.
+      height: 'calc(100vh - 300px)',
+      minHeight: 380,
+      maxHeight: 720,
       display: 'flex',
       flexDirection: 'column',
-      gap: 0,
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 16 }}>
+      {/* 🆕 Encabezado fijo — NO scrollea con la lista */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 16, flexShrink: 0 }}>
         <span style={{ color, fontSize: 14 }}>{dot}</span>
         <span style={{ fontSize: 12, fontWeight: 600, color: T.textMuted, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
           {titulo}
@@ -489,8 +530,22 @@ function Columna({ titulo, count, color, dot, T, children }: {
           {count}
         </span>
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {/* 🆕 Contenedor con scroll interno — solo esto crece/scrollea */}
+      <div className="tar-col-scroll" style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 10,
+        overflowY: 'auto',
+        paddingRight: 4,
+        flex: 1,
+        minHeight: 0, // 🔑 indispensable para que el overflow funcione dentro de un flex column
+      }}>
         {children}
+        {count === 0 && (
+          <div style={{ fontSize: 12, color: T.textFaint, textAlign: 'center', padding: '20px 0' }}>
+            Sin tareas
+          </div>
+        )}
       </div>
     </div>
   )
@@ -512,6 +567,7 @@ function TarjetaTarea({ tarea: t, renderFecha, onCheck, checked, completada, T, 
       borderRadius: 8,
       padding: '12px 14px',
       opacity: completada ? 0.7 : 1,
+      flexShrink: 0, // 🆕 evita que las tarjetas se compriman dentro del contenedor con scroll
     }}>
       <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
         <input
@@ -556,7 +612,7 @@ function TarjetaTarea({ tarea: t, renderFecha, onCheck, checked, completada, T, 
         {renderFecha(t.fecha_vencimiento)}
       </div>
 
-      {extra && <div style={{ marginLeft: 24, marginTop: 4 }}>{extra}</div>}
+      {extra && <div style={{ marginLeft: 24, marginTop: 6 }}>{extra}</div>}
     </div>
   )
 }
@@ -629,6 +685,14 @@ function getStyles(T: typeof T_DARK, oscuro: boolean) {
       border: `0.5px solid ${T.border}`,
       borderRadius: 9,
       fontSize: 13,
+      cursor: 'pointer',
+    } as React.CSSProperties,
+    btnEliminarTarjeta: {
+      background: 'transparent',
+      border: 'none',
+      color: T.red,
+      fontSize: 11,
+      padding: 0,
       cursor: 'pointer',
     } as React.CSSProperties,
     alertaError: {

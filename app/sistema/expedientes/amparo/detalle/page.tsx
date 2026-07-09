@@ -5,6 +5,12 @@ import Link from 'next/link'
 import { useRouter, useSearchParams, notFound } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
 import { useTema } from '@/app/sistema/layout'
+import {
+  queryDetalleAmparoLocal,
+  eliminarExpedienteLocal,
+  limpiarExpedienteCacheTrasBorrarOnline,
+} from '@/lib/dbHelpers'
+import { syncConSupabase } from '@/lib/sync'
 
 const T_DARK = {
   bg: '#070b14',
@@ -61,6 +67,7 @@ export default function DetalleAmparoPage() {
   const [amp, setAmp] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
+  const [esOffline, setEsOffline] = useState(false)
 
   // 🗑️ Estado para eliminar
   const [confirmarEliminar, setConfirmarEliminar] = useState(false)
@@ -73,7 +80,28 @@ export default function DetalleAmparoPage() {
       return
     }
 
+    const cargarDesdeLocal = async () => {
+      const local = await queryDetalleAmparoLocal(amparoId)
+      if (!local) {
+        setError(true)
+        return false
+      }
+      setAmp(local)
+      setEsOffline(true)
+      setError(false)
+      return true
+    }
+
     const fetchData = async () => {
+      // 🌐 Igual que en el dashboard: revisa navigator.onLine ANTES de
+      // intentar la red, para no depender de un timeout que compita con
+      // el service worker.
+      if (!navigator.onLine) {
+        await cargarDesdeLocal()
+        setLoading(false)
+        return
+      }
+
       try {
         const { data: { user } } = await supabase.auth.getUser()
         if (!user) {
@@ -96,7 +124,11 @@ export default function DetalleAmparoPage() {
           .single()
 
         if (fetchError || !ampRaw) {
-          notFound()
+          // 🌐 Si falla la red a medio camino (o el registro sólo existe
+          // en cache aún sin sincronizar), cae al cache local antes de
+          // declarar 404.
+          const cayoOffline = await cargarDesdeLocal()
+          if (!cayoOffline) notFound()
           return
         }
 
@@ -122,14 +154,24 @@ export default function DetalleAmparoPage() {
             tercero_interesado: dataAmpRaw.tercero_interesado,
           } : null,
         })
+        setEsOffline(false)
       } catch (e) {
-        setError(true)
+        const cayoOffline = await cargarDesdeLocal()
+        if (!cayoOffline) setError(true)
       } finally {
         setLoading(false)
       }
     }
 
     fetchData()
+
+    // 🌐 Si vuelve la conexión estando en esta pantalla, re-sincroniza y
+    // vuelve a cargar el detalle fresco de Supabase.
+    const alVolverConexion = () => {
+      syncConSupabase().finally(fetchData)
+    }
+    window.addEventListener('online', alVolverConexion)
+    return () => window.removeEventListener('online', alVolverConexion)
   }, [amparoId, id, router, supabase])
 
   // 🗑️ Elimina el expediente de amparo y regresa al listado
@@ -137,12 +179,22 @@ export default function DetalleAmparoPage() {
     setErrorEliminar(null)
     setEliminando(true)
     try {
-      const { error: delError } = await supabase
-        .from('expedientes')
-        .delete()
-        .eq('id', amparoId)
+      if (navigator.onLine) {
+        const { error: delError } = await supabase
+          .from('expedientes')
+          .delete()
+          .eq('id', amparoId)
 
-      if (delError) throw delError
+        if (delError) throw delError
+
+        // Limpia también el cache local para que no reaparezca si se
+        // pierde la conexión antes del próximo sync.
+        await limpiarExpedienteCacheTrasBorrarOnline(amparoId).catch(() => {})
+      } else {
+        // Sin conexión: borra del cache y encola el delete para cuando
+        // vuelva la red (sync_queue lo procesa en subirPendientes()).
+        await eliminarExpedienteLocal(amparoId)
+      }
 
       router.push('/sistema/expedientes/amparo')
     } catch (e: any) {
@@ -212,12 +264,20 @@ export default function DetalleAmparoPage() {
         }
       `}</style>
 
-      <Link href="/sistema/expedientes/amparo" style={s.breadcrumb}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="m15 18-6-6 6-6"/>
-        </svg>
-        Volver a Expedientes de Amparo
-      </Link>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' as const }}>
+        <Link href="/sistema/expedientes/amparo" style={s.breadcrumb}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m15 18-6-6 6-6"/>
+          </svg>
+          Volver a Expedientes de Amparo
+        </Link>
+        {esOffline && (
+          <span style={s.offlineBadge}>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: T.amber, flexShrink: 0 }} />
+            Mostrando datos guardados sin conexión
+          </span>
+        )}
+      </div>
 
       <div className="amp-hero" style={s.hero}>
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -387,6 +447,11 @@ export default function DetalleAmparoPage() {
             <p style={s.modalConfirmTexto}>
               Esta acción eliminará permanentemente el expediente <strong>{amp.numero_expediente}</strong> junto con sus tareas asociadas. No se puede deshacer.
             </p>
+            {!navigator.onLine && (
+              <p style={{ color: T.amber, fontSize: 12.5, marginTop: 8, marginBottom: 0 }}>
+                Sin conexión: se eliminará del dispositivo y se sincronizará con el servidor cuando vuelva la red.
+              </p>
+            )}
             {errorEliminar && (
               <p style={{ color: T.red, fontSize: 12.5, marginTop: 8, marginBottom: 0 }}>{errorEliminar}</p>
             )}
@@ -466,6 +531,18 @@ function getStyles(T: typeof T_DARK, oscuro: boolean) {
       fontWeight: 500,
       width: 'fit-content',
       transition: 'color 0.2s',
+    } as React.CSSProperties,
+    offlineBadge: {
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: 6,
+      fontSize: 11.5,
+      fontWeight: 600,
+      color: T.amber,
+      background: oscuro ? 'rgba(251,191,36,0.08)' : 'rgba(217,119,6,0.08)',
+      border: `0.5px solid ${T.amber}40`,
+      borderRadius: 20,
+      padding: '5px 12px',
     } as React.CSSProperties,
     hero: {
       display: 'flex',

@@ -5,6 +5,12 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createBrowserClient } from '@supabase/ssr'
 import { useTema } from '@/app/sistema/layout' // Ajusta la ruta si es necesario
+import {
+  queryDetallePenalLocal,
+  eliminarExpedienteLocal,
+  limpiarExpedienteCacheTrasBorrarOnline,
+} from '@/lib/dbHelpers'
+import { syncConSupabase } from '@/lib/sync'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 🎨 TOKENS OSCUROS (Penal – rojo vino)
@@ -74,6 +80,7 @@ export default function DetalleCausaPenalPage({
   const [causa, setCausa] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
+  const [esOffline, setEsOffline] = useState(false)
 
   // 🗑️ Estado para eliminar
   const [confirmarEliminar, setConfirmarEliminar] = useState(false)
@@ -86,7 +93,28 @@ export default function DetalleCausaPenalPage({
       return
     }
 
+    const cargarDesdeLocal = async () => {
+      const local = await queryDetallePenalLocal(causaId)
+      if (!local) {
+        setError(true)
+        return false
+      }
+      setCausa(local)
+      setEsOffline(true)
+      setError(false)
+      return true
+    }
+
     const fetchData = async () => {
+      // 🌐 Igual que en el dashboard: revisa navigator.onLine ANTES de
+      // intentar la red, para no depender de un timeout que compita con
+      // el service worker.
+      if (!navigator.onLine) {
+        await cargarDesdeLocal()
+        setLoading(false)
+        return
+      }
+
       try {
         const { data: { user } } = await supabase.auth.getUser()
         if (!user) {
@@ -111,7 +139,8 @@ export default function DetalleCausaPenalPage({
           .single()
 
         if (fetchError || !causaRaw) {
-          setError(true)
+          const cayoOffline = await cargarDesdeLocal()
+          if (!cayoOffline) setError(true)
           return
         }
 
@@ -141,14 +170,24 @@ export default function DetalleCausaPenalPage({
             mp: (penalRaw.ministerios_publicos as any)?.nombre_agencia ?? null,
           } : null,
         })
+        setEsOffline(false)
       } catch (e) {
-        setError(true)
+        const cayoOffline = await cargarDesdeLocal()
+        if (!cayoOffline) setError(true)
       } finally {
         setLoading(false)
       }
     }
 
     fetchData()
+
+    // 🌐 Si vuelve la conexión estando en esta pantalla, re-sincroniza y
+    // vuelve a cargar el detalle fresco de Supabase.
+    const alVolverConexion = () => {
+      syncConSupabase().finally(fetchData)
+    }
+    window.addEventListener('online', alVolverConexion)
+    return () => window.removeEventListener('online', alVolverConexion)
   }, [causaId, id, router, supabase])
 
   // 🗑️ Elimina la causa penal y regresa al listado
@@ -156,12 +195,18 @@ export default function DetalleCausaPenalPage({
     setErrorEliminar(null)
     setEliminando(true)
     try {
-      const { error: delError } = await supabase
-        .from('expedientes')
-        .delete()
-        .eq('id', causaId)
+      if (navigator.onLine) {
+        const { error: delError } = await supabase
+          .from('expedientes')
+          .delete()
+          .eq('id', causaId)
 
-      if (delError) throw delError
+        if (delError) throw delError
+
+        await limpiarExpedienteCacheTrasBorrarOnline(causaId).catch(() => {})
+      } else {
+        await eliminarExpedienteLocal(causaId)
+      }
 
       router.push('/sistema/expedientes/penal')
     } catch (e: any) {
@@ -240,12 +285,20 @@ export default function DetalleCausaPenalPage({
       `}</style>
 
       {/* Breadcrumb */}
-      <Link href="/sistema/expedientes/penal" style={s.breadcrumb}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="m15 18-6-6 6-6"/>
-        </svg>
-        Volver a Causas Penales
-      </Link>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' as const }}>
+        <Link href="/sistema/expedientes/penal" style={s.breadcrumb}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m15 18-6-6 6-6"/>
+          </svg>
+          Volver a Causas Penales
+        </Link>
+        {esOffline && (
+          <span style={s.offlineBadge}>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: T.amber, flexShrink: 0 }} />
+            Mostrando datos guardados sin conexión
+          </span>
+        )}
+      </div>
 
       {/* HERO */}
       <div className="pen-hero" style={s.hero}>
@@ -416,6 +469,11 @@ export default function DetalleCausaPenalPage({
             <p style={s.modalConfirmTexto}>
               Esta acción eliminará permanentemente la causa <strong>{causa.numero_expediente}</strong> junto con sus tareas asociadas. No se puede deshacer.
             </p>
+            {!navigator.onLine && (
+              <p style={{ color: T.amber, fontSize: 12.5, marginTop: 8, marginBottom: 0 }}>
+                Sin conexión: se eliminará del dispositivo y se sincronizará con el servidor cuando vuelva la red.
+              </p>
+            )}
             {errorEliminar && (
               <p style={{ color: T.red, fontSize: 12.5, marginTop: 8, marginBottom: 0 }}>{errorEliminar}</p>
             )}
@@ -497,6 +555,18 @@ function getStyles(T: typeof T_DARK, oscuro: boolean) {
       fontWeight: 500,
       width: 'fit-content',
       transition: 'color 0.2s',
+    } as React.CSSProperties,
+    offlineBadge: {
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: 6,
+      fontSize: 11.5,
+      fontWeight: 600,
+      color: T.amber,
+      background: oscuro ? 'rgba(251,191,36,0.08)' : 'rgba(217,119,6,0.08)',
+      border: `0.5px solid ${T.amber}40`,
+      borderRadius: 20,
+      padding: '5px 12px',
     } as React.CSSProperties,
     hero: {
       display: 'flex',
