@@ -61,6 +61,8 @@ function DetalleAmparoPage() {
   const id = searchParams.get('id')
   const amparoId = Number(id)
 
+  console.log('🔍 ID recibido:', id)
+  console.log('🔍 amparoId:', amparoId)
   const { oscuro } = useTema()
   const T = oscuro ? T_DARK : T_LIGHT
 
