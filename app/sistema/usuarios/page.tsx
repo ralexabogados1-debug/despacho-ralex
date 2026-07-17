@@ -1,5 +1,6 @@
 'use client'
 
+import { useArranque } from '@/hooks/useArranque'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
@@ -44,6 +45,7 @@ async function cargarUsuariosLocales() {
 }
 
 export default function UsuariosPage() {
+    const arranqueListo = useArranque()
   const router = useRouter()
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -57,6 +59,7 @@ export default function UsuariosPage() {
   const [accesoDenegado, setAccesoDenegado] = useState(false)
 
   useEffect(() => {
+    if (!arranqueListo) return
     const cargar = async () => {
       const sesionLocal = leerSesionLocal()
       const cacheValido = sesionLocal && sesionLocal.expires_at > Date.now()
@@ -134,7 +137,7 @@ export default function UsuariosPage() {
     }
 
     cargar()
-  }, [supabase, router])
+  }, [supabase, router, arranqueListo])
 
   if (loading) {
     return (

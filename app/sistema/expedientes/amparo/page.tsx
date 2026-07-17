@@ -1,5 +1,6 @@
 'use client'
 
+import { useArranque } from '@/hooks/useArranque'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
@@ -87,6 +88,7 @@ async function cargarAmparosLocales() {
 }
 
 export default function AmparosPage() {
+    const arranqueListo = useArranque()
   const router = useRouter()
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -194,9 +196,10 @@ export default function AmparosPage() {
   }
 
   useEffect(() => {
+    if (!arranqueListo) return
     cargar()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [supabase, router])
+  }, [supabase, router, arranqueListo])
 
   if (loading) {
     return (

@@ -1,5 +1,6 @@
 'use client'
 
+import { useArranque } from '@/hooks/useArranque'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
@@ -35,6 +36,7 @@ async function getUserConTimeout(
 // 🧩 Página Penal cliente‑first (funciona offline)
 // ────────────────────────────────────────────────────────────────
 export default function PenalPage() {
+    const arranqueListo = useArranque()
   const router = useRouter()
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -51,6 +53,7 @@ export default function PenalPage() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    if (!arranqueListo) return
     const cargar = async () => {
       const sesionLocal = leerSesionLocal()
       const cacheValido = sesionLocal && sesionLocal.expires_at > Date.now()
@@ -110,7 +113,7 @@ export default function PenalPage() {
     }
 
     cargar()
-  }, [supabase, router])
+  }, [supabase, router, arranqueListo])
 
   // ── Spinner de carga (sin fondo negro forzado) ──
   if (loading) {

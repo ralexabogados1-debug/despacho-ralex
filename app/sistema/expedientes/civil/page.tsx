@@ -1,5 +1,6 @@
 'use client'
 
+import { useArranque } from '@/hooks/useArranque'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
@@ -46,6 +47,7 @@ async function cargarCivilesLocales() {
 }
 
 export default function CivilPage() {
+    const arranqueListo = useArranque()
   const router = useRouter()
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -60,6 +62,7 @@ export default function CivilPage() {
   const [esOffline,   setEsOffline]   = useState(false)
 
   useEffect(() => {
+    if (!arranqueListo) return
     const cargar = async () => {
       const sesionLocal = leerSesionLocal()
       const cacheValido = sesionLocal && sesionLocal.expires_at > Date.now()
@@ -159,7 +162,7 @@ export default function CivilPage() {
     }
 
     cargar()
-  }, [supabase, router])
+  }, [supabase, router, arranqueListo])
 
   if (loading) {
     return (

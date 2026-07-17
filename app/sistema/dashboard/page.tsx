@@ -1,5 +1,6 @@
 'use client'
 
+import { useArranque } from '@/hooks/useArranque'
 import { useEffect, useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
@@ -145,6 +146,7 @@ async function cargarDatosLocales() {
 }
 
 export default function DashboardPage() {
+  const arranqueListo = useArranque()
   const { oscuro } = useTema()
   const T = oscuro ? T_DARK : T_LIGHT
   const styles = useMemo(() => getStyles(T), [T])
@@ -164,94 +166,84 @@ export default function DashboardPage() {
   const [esOffline, setEsOffline]                   = useState(false)
 
   useEffect(() => {
-    const cargar = async () => {
-      const sesionLocal  = leerSesionLocal()
-      const cacheValido  = sesionLocal && sesionLocal.expires_at > Date.now()
+  if (!arranqueListo) return  // ← useArranque ya esperó 500ms
+  const cargar = async () => {
+    const sesionLocal = leerSesionLocal()
+    const cacheValido = sesionLocal && sesionLocal.expires_at > Date.now()
 
-      const usarDatosLocales = async (perfilBase: any) => {
-        setPerfil(perfilBase)
-        try {
-          const local = await cargarDatosLocales()
-          setCountCivilFamiliar(local.cCF)
-          setCountPenal(local.cP)
-          setCountAmparo(local.cA)
-          setRecientes(local.recientes)
-        } catch (sqlErr) {
-          console.error('🔴 SQLite error:', sqlErr)
-        }
-        setEsOffline(true)
-        setLoading(false)
-      }
-
-      // 1. Intentar obtener usuario Supabase con timeout.
-      //    🔧 Si el navegador ya sabe que no hay conexión, ni lo intentamos
-      //    — evita el error de red innecesario y el ruido en consola
-      //    (Failed to fetch / ERR_INTERNET_DISCONNECTED) cuando está
-      //    completamente offline.
-      const user = navigator.onLine
-        ? await getUserConTimeout(supabase)
-        : null
-
-      if (!user) {
-        if (!cacheValido) {
-          router.push('/login')
-          return
-        }
-        await usarDatosLocales({
-          nombre_completo: sesionLocal!.nombre,
-          rol:             sesionLocal!.rol,
-          email:           sesionLocal!.email,
-        })
-        return
-      }
-
-      // 2. ⚡ Sincronizar cola local si detectamos red
-      if (navigator.onLine) {
-        try {
-          console.log('🔵 [DIAGNÓSTICO] Ejecutando syncConSupabase()...')
-          await syncConSupabase()
-          console.log('🔵 [DIAGNÓSTICO] syncConSupabase() terminó sin lanzar error')
-        } catch (syncErr) {
-          console.warn('🟡 Fallo intermedio en motor de sync:', syncErr)
-        }
-      } else {
-        console.log('🟡 [DIAGNÓSTICO] navigator.onLine es false, no se ejecuta syncConSupabase()')
-      }
-
-      // 3. Renderizar siempre usando SQLite local como Fuente de Verdad
+    const usarDatosLocales = async (perfilBase: any) => {
+      setPerfil(perfilBase)
       try {
-        const { data: perfilData } = await supabase
-          .from('usuarios')
-          .select('nombre_completo, rol, email')
-          .eq('auth_id', user.id)
-          .single()
-
-        setPerfil(perfilData)
-
         const local = await cargarDatosLocales()
         setCountCivilFamiliar(local.cCF)
         setCountPenal(local.cP)
         setCountAmparo(local.cA)
         setRecientes(local.recientes)
-        setEsOffline(!navigator.onLine)
-        setLoading(false)
+      } catch (sqlErr) {
+        console.error('🔴 SQLite error:', sqlErr)
+      }
+      setEsOffline(true)
+      setLoading(false)
+    }
 
-      } catch (e) {
-        console.error('🔴 Dashboard error:', e)
-        if (cacheValido) {
-          await usarDatosLocales({
-            nombre_completo: sesionLocal!.nombre,
-            rol:             sesionLocal!.rol,
-            email:           sesionLocal!.email,
-          })
-        } else {
-          router.push('/login')
-        }
+    const user = navigator.onLine
+      ? await getUserConTimeout(supabase)
+      : null
+
+    if (!user) {
+      if (!cacheValido) {
+        router.push('/login')
+        return
+      }
+      await usarDatosLocales({
+        nombre_completo: sesionLocal!.nombre,
+        rol:             sesionLocal!.rol,
+        email:           sesionLocal!.email,
+      })
+      return
+    }
+
+    if (navigator.onLine) {
+      try {
+        await syncConSupabase()
+      } catch (syncErr) {
+        console.warn('🟡 Fallo intermedio en motor de sync:', syncErr)
       }
     }
 
-    cargar()
-  }, [supabase, router])
+    try {
+      const { data: perfilData } = await supabase
+        .from('usuarios')
+        .select('nombre_completo, rol, email')
+        .eq('auth_id', user.id)
+        .single()
+
+      setPerfil(perfilData)
+
+      const local = await cargarDatosLocales()
+      setCountCivilFamiliar(local.cCF)
+      setCountPenal(local.cP)
+      setCountAmparo(local.cA)
+      setRecientes(local.recientes)
+      setEsOffline(!navigator.onLine)
+      setLoading(false)
+
+    } catch (e) {
+      console.error('🔴 Dashboard error:', e)
+      if (cacheValido) {
+        await usarDatosLocales({
+          nombre_completo: sesionLocal!.nombre,
+          rol:             sesionLocal!.rol,
+          email:           sesionLocal!.email,
+        })
+      } else {
+        router.push('/login')
+      }
+    }
+  }
+
+  cargar()
+}, [supabase, router, arranqueListo])
 
   if (loading) {
     return (

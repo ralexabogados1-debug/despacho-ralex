@@ -1,5 +1,6 @@
 'use client'
 
+import { useArranque } from '@/hooks/useArranque'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
@@ -42,6 +43,7 @@ async function cargarTareasLocales() {
 }
 
 export default function TareasPage() {
+    const arranqueListo = useArranque()
   const router = useRouter()
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -56,6 +58,7 @@ export default function TareasPage() {
   const [esOffline, setEsOffline] = useState(false)
 
   useEffect(() => {
+    if (!arranqueListo) return
     const cargar = async () => {
       const sesionLocal = leerSesionLocal()
       const cacheValido = sesionLocal && sesionLocal.expires_at > Date.now()
@@ -169,7 +172,7 @@ export default function TareasPage() {
     }
 
     cargar()
-  }, [supabase, router])
+  }, [supabase, router, arranqueListo])
 
   if (loading) {
     return (
