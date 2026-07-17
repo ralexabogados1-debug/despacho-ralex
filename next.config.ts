@@ -21,17 +21,14 @@ const withPWA = require('@ducanh2912/next-pwa').default({
     clientsClaim: true,
 
     runtimeCaching: [
-      // ─── 1. RUTA RAÍZ ────────────────────────────────────────────────
-      // StaleWhileRevalidate: sirve desde caché INMEDIATAMENTE,
-      // luego actualiza en segundo plano si hay red.
-      // Antes era NetworkFirst → fallaba en cold start sin internet.
-      {
-        urlPattern: /^https:\/\/despacho-ralex-seven\.vercel\.app\/$/,
-        handler: 'StaleWhileRevalidate',
-        options: {
-          cacheName: 'start-url',
-        },
-      },
+      // ─── 1. RUTA RAÍZ ────────────────────────────────────────────────────
+{
+  urlPattern: ({ url }: any) => url.pathname === '/',
+  handler: 'StaleWhileRevalidate',
+  options: {
+    cacheName: 'start-url',
+  },
+},
 
       // ─── 2. WASM (sql.js) ────────────────────────────────────────────
       // CacheFirst: una vez descargado nunca vuelve a la red.
