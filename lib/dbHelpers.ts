@@ -924,16 +924,22 @@ export async function queryDetalleCivilLocal(id: number): Promise<any | null> {
 export async function queryDetallePenalLocal(id: number): Promise<any | null> {
   const db = await getDb();
 
+  // ✅ CORREGIDO: el juzgado ahora se resuelve directo desde e.juzgado_id
+  // (igual que Civil y Amparo), NO a través de jueces.juzgado_id.
+  // Antes, si la causa no tenía juez_id asignado todavía, el juzgado
+  // offline salía vacío aunque expedientes.juzgado_id sí tuviera valor.
   const expStmt = db.prepare(`
     SELECT
       e.id, e.numero_expediente, e.caracter_cliente, e.contraparte,
       e.estado, e.fecha_inicio, e.descripcion,
-      e.cliente_id, e.juez_id,
+      e.cliente_id, e.juez_id, e.juzgado_id,
       c.nombre_completo AS cliente_nombre,
-      j.nombre AS juez_nombre, j.juzgado_id AS juez_juzgado_id
+      j.nombre AS juez_nombre,
+      jz.nombre AS juzgado_nombre, jz.ciudad AS juzgado_ciudad
     FROM expedientes e
     LEFT JOIN clientes c ON c.id = e.cliente_id
     LEFT JOIN jueces j ON j.id = e.juez_id
+    LEFT JOIN juzgados jz ON jz.id = e.juzgado_id
     WHERE e.id = ?
   `);
   expStmt.bind([id]);
@@ -941,14 +947,6 @@ export async function queryDetallePenalLocal(id: number): Promise<any | null> {
   if (expStmt.step()) exp = expStmt.getAsObject();
   expStmt.free();
   if (!exp) return null;
-
-  let juzgado: any = null;
-  if (exp.juez_juzgado_id) {
-    const jzStmt = db.prepare(`SELECT nombre, ciudad FROM juzgados WHERE id = ?`);
-    jzStmt.bind([exp.juez_juzgado_id]);
-    if (jzStmt.step()) juzgado = jzStmt.getAsObject();
-    jzStmt.free();
-  }
 
   const penalStmt = db.prepare(`
     SELECT ep.*, mp.nombre_agencia
@@ -983,7 +981,7 @@ export async function queryDetallePenalLocal(id: number): Promise<any | null> {
     descripcion: exp.descripcion,
     cliente: exp.cliente_nombre ?? null,
     juez: exp.juez_nombre ?? null,
-    juzgado,
+    juzgado: exp.juzgado_nombre ? { nombre: exp.juzgado_nombre, ciudad: exp.juzgado_ciudad } : null,
     tareas,
     penal: penal ? {
       numero_carpeta_investigacion: penal.numero_carpeta_investigacion,

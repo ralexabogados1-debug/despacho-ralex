@@ -67,9 +67,6 @@ export default function DetalleCausaPenalPage() {
 
   const router = useRouter()
 
-  // FIX 2: el cliente de supabase se creaba en cada render, lo que provocaba
-  // que el useEffect de abajo se re-disparara constantemente (su dependencia
-  // "supabase" nunca era === a la anterior). Con useMemo se crea una sola vez.
   const supabase = useMemo(
     () =>
       createBrowserClient(
@@ -108,17 +105,13 @@ export default function DetalleCausaPenalPage() {
   const [nuevaTareaFecha, setNuevaTareaFecha] = useState('')
   const [creandoTarea, setCreandoTarea] = useState(false)
   const [errorTarea, setErrorTarea] = useState<string | null>(null)
-console.log('🚀 Render del componente')
+
   useEffect(() => {
-  console.log('🚀 useEffect ejecutado')
-  console.log('id:', id)
-  console.log('causaId:', causaId)
-  if (!id || Number.isNaN(causaId)) {
-    console.log('❌ id inválido')
-    setError(true)
-    setLoading(false)
-    return
-  }
+    if (!id || Number.isNaN(causaId)) {
+      setError(true)
+      setLoading(false)
+      return
+    }
 
     const cargarDesdeLocal = async () => {
       const local = await queryDetallePenalLocal(causaId)
@@ -132,29 +125,36 @@ console.log('🚀 Render del componente')
       return true
     }
 
-    console.log('✅ Voy a llamar fetchData')
-
-  const fetchData = async () => {
-    console.log('🔵 fetchData iniciado')
-
-  if (!navigator.onLine) {
-    await cargarDesdeLocal()
-    setLoading(false)
-    return
-  }
-
+    const fetchData = async () => {
+      // 🔧 FIX: esta rama no tenía try/catch. Si queryDetallePenalLocal()
+      // (o getDb()/sql.js) tronaba por cualquier motivo estando offline,
+      // el error se quedaba sin atrapar dentro del useEffect y terminaba
+      // mostrando una pantalla de error genérica en vez de la UI controlada
+      // de "Causa no encontrada" / datos offline. Con esto, cualquier falla
+      // al leer SQLite local cae limpiamente a setError(true).
+      if (!navigator.onLine) {
         try {
-    const { data: { user } } = await supabase.auth.getUser()
-    console.log('🔵 usuario obtenido:', user?.id, user?.email)
+          const cargoOffline = await cargarDesdeLocal()
+          if (!cargoOffline) setError(true)
+        } catch (e) {
+          console.warn('Fallo cargando detalle Penal desde SQLite local:', e)
+          setError(true)
+        } finally {
+          setLoading(false)
+        }
+        return
+      }
 
-    if (!user) {
-      console.log('🔴 no hay usuario, redirigiendo a login')
-      router.push('/login')
-      return
-    }
+      try {
+        const { data: { user } } = await supabase.auth.getUser()
+
+        if (!user) {
+          router.push('/login')
+          return
+        }
 
         const { data: causaRaw, error: fetchError } = await supabase
-  .from('expedientes')
+          .from('expedientes')
           .select(`
             id, numero_expediente, caracter_cliente, contraparte, estado, fecha_inicio, descripcion,
             clientes ( nombre_completo ),
@@ -167,26 +167,18 @@ console.log('🚀 Render del componente')
             )
           `)
           .eq('id', causaId)
-  .single()
+          .single()
 
-  console.log("================================")
-console.log("causaRaw:", causaRaw)
-console.log("fetchError:", fetchError)
-console.log("================================")
-        console.log('🔵 respuesta de expedientes:', { causaRaw, fetchError })
+        if (fetchError || !causaRaw) {
+          const cayoOffline = await cargarDesdeLocal()
+          if (!cayoOffline) setError(true)
+          return
+        }
 
-    if (fetchError || !causaRaw) {
-      console.log('🔴 cayendo a offline por fetchError o causaRaw vacío')
-      const cayoOffline = await cargarDesdeLocal()
-      if (!cayoOffline) setError(true)
-      return
-    }
         const penalRaw = Array.isArray(causaRaw.expedientes_penales)
           ? causaRaw.expedientes_penales[0]
           : causaRaw.expedientes_penales
 
-          console.log("✅ Antes de setCausa")
-          console.log(causaRaw)
         setCausa({
           id:                causaRaw.id,
           numero_expediente: causaRaw.numero_expediente,
@@ -209,18 +201,15 @@ console.log("================================")
             mp: (penalRaw.ministerios_publicos as any)?.nombre_agencia ?? null,
           } : null,
         })
-        console.log("✅ Después de setCausa")
         setEsOffline(false)
       } catch (e) {
-    console.log('🔴 CATCH capturó:', e)
-    const cayoOffline = await cargarDesdeLocal()
-    if (!cayoOffline) setError(true)
-  } finally {
-    setLoading(false)
-  }
-}
-      fetchData()
-
+        const cayoOffline = await cargarDesdeLocal()
+        if (!cayoOffline) setError(true)
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchData()
 
     const alVolverConexion = () => {
       syncConSupabase().finally(fetchData)
