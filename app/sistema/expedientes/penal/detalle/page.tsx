@@ -1,8 +1,7 @@
 'use client'
 
-
-export const dynamic = 'force-dynamic'
-import { useEffect, useState, useMemo, use } from 'react'
+import { useEffect, useState, useMemo } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createBrowserClient } from '@supabase/ssr'
@@ -57,13 +56,10 @@ const T_LIGHT = {
   textAccent:  '#1e3a8a',
 }
 
-export default function DetalleCausaPenalPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ id?: string }>
-}) {
-  const params = use(searchParams)
-  const id = params.id
+export default function DetalleCausaPenalPage() {
+  const searchParams = useSearchParams()
+
+  const id = searchParams.get('id')
   const causaId = Number(id)
 
   const { oscuro } = useTema()
