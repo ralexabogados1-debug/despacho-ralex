@@ -1,4 +1,15 @@
+'use client'
+import { useEffect } from 'react'
+
 export default function OfflinePage() {
+  useEffect(() => {
+    // Espera 3 segundos y reintenta cargar la página anterior
+    const timer = setTimeout(() => {
+      window.history.back()
+    }, 3000)
+    return () => clearTimeout(timer)
+  }, [])
+
   return (
     <div style={{
       display: 'flex',
@@ -14,8 +25,10 @@ export default function OfflinePage() {
     }}>
       <h1 style={{ fontSize: 20, margin: 0 }}>Sin conexión</h1>
       <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 14, maxWidth: 320 }}>
-        Esta pantalla aún no se ha guardado en tu dispositivo. Vuelve a intentarlo
-        cuando tengas conexión, o abre una causa que ya hayas visitado antes.
+        Cargando desde tu dispositivo…
+      </p>
+      <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: 12 }}>
+        Reintentando automáticamente…
       </p>
     </div>
   )
