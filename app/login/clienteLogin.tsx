@@ -19,21 +19,21 @@ export default function FormularioLogin({
 }) {
   const router = useRouter()
   const [errorLocal, setErrorLocal] = useState<string | null>(null)
-  const [cargando, setCargando]     = useState(true) // empieza en true mientras revisa cache
+  const [cargando, setCargando]     = useState(true)
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Al montar: verificar si ya hay sesión guardada → entrar directo
-  // Esto es el patrón "stay logged in" — igual que Claude, Mercado Libre, etc.
-  // ─────────────────────────────────────────────────────────────────────────
   useEffect(() => {
-    const sesion = leerSesionLocal()
-    if (sesion && sesion.expires_at > Date.now()) {
-      // Sesión válida → saltar el login directo al dashboard
-      router.replace('/sistema/dashboard')
-      return
-    }
-    // No hay sesión válida → mostrar formulario
-    setCargando(false)
+    // Esperar 500ms para que navigator.onLine se estabilice
+    // antes de decidir si hay sesión válida
+    const timer = setTimeout(() => {
+      const sesion = leerSesionLocal()
+      if (sesion && sesion.expires_at > Date.now()) {
+        router.replace('/sistema/dashboard')
+        return
+      }
+      setCargando(false)
+    }, 500)
+
+    return () => clearTimeout(timer)
   }, [router])
 
   async function handleSubmit(formData: FormData) {
@@ -42,6 +42,10 @@ export default function FormularioLogin({
 
     const email    = formData.get('email')    as string
     const password = formData.get('password') as string
+
+    // Esperar 1s para que navigator.onLine se estabilice
+    // antes de decidir qué flujo usar (online vs offline)
+    await new Promise(r => setTimeout(r, 1000))
 
     // ─── MODO OFFLINE ─────────────────────────────────────────────────────
     if (!navigator.onLine) {
@@ -63,7 +67,6 @@ export default function FormularioLogin({
           expires_at: 0,
         }
 
-        // 1 año de sesión
         guardarSesionLocal({ ...sesion, expires_at: Date.now() + 1000 * 60 * 60 * 24 * 365 })
         router.replace('/sistema/dashboard')
       } else {
@@ -93,10 +96,8 @@ export default function FormularioLogin({
       const iniciales = nombre.split(' ').map((p: string) => p[0] ?? '').join('').slice(0, 2).toUpperCase()
       const rol       = (user.user_metadata?.rol ?? 'asistente').toLowerCase()
 
-      // Guardar creds para uso offline futuro
       await guardarCredsLocal(email, password, { id: user.id, nombre, rol, iniciales })
 
-      // Guardar sesión con 1 año de vigencia — no vuelve a pedir login
       guardarSesionLocal({
         id:         user.id,
         email:      user.email ?? '',
@@ -114,7 +115,6 @@ export default function FormularioLogin({
     }
   }
 
-  // Mientras verifica el cache → spinner sin formulario
   if (cargando) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', padding: '20px 0' }}>
