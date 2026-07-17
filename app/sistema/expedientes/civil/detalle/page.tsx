@@ -2,7 +2,7 @@
 
 
 export const dynamic = 'force-dynamic'
-import { useEffect, useState, useMemo, use } from 'react'
+import { useEffect, useState, useMemo} from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createBrowserClient } from '@supabase/ssr'
@@ -65,16 +65,11 @@ const supabase = createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-interface PageProps {
-  params?: Promise<{ id?: string }>
-  searchParams?: Promise<{ id?: string }>
-}
+import { useSearchParams } from 'next/navigation'
 
-export default function DetalleExpedienteCivilPage({ params, searchParams }: PageProps) {
-  const resolvedParams = params ? use(params) : {}
-  const resolvedSearchParams = searchParams ? use(searchParams) : {}
-  
-  const rawId = resolvedParams?.id || resolvedSearchParams?.id
+export default function DetalleExpedienteCivilPage() {
+  const searchParams = useSearchParams()
+  const rawId = searchParams.get('id')
   const expedienteId = Number(rawId)
 
   const { oscuro } = useTema()
