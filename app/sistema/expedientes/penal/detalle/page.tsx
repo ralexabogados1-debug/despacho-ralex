@@ -114,12 +114,13 @@ export default function DetalleCausaPenalPage({
   const [errorTarea, setErrorTarea] = useState<string | null>(null)
 console.log('🚀 Render del componente')
   useEffect(() => {
-     console.log('🚀 useEffect ejecutado')
-    if (!id || Number.isNaN(causaId)) {
-      setError(true)
-      setLoading(false) // FIX 1: sin esto el spinner se quedaba pegado para siempre
-      return
-    }
+  console.log('🚀 useEffect ejecutado')
+
+  if (!id || Number.isNaN(causaId)) {
+    setError(true)
+    setLoading(false)
+    return
+  }
 
     const cargarDesdeLocal = async () => {
       const local = await queryDetallePenalLocal(causaId)
@@ -134,7 +135,7 @@ console.log('🚀 Render del componente')
     }
 
     const fetchData = async () => {
-  console.log('🔵 fetchData iniciado, causaId:', causaId, 'online:', navigator.onLine)
+    console.log('🔵 fetchData iniciado')
 
   if (!navigator.onLine) {
     await cargarDesdeLocal()
