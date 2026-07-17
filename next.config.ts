@@ -4,10 +4,21 @@ const withPWA = require('next-pwa')({
   disable: process.env.NODE_ENV === 'development',
   register: true,
   skipWaiting: true,
-})
+  runtimeCaching: [
+    {
+      urlPattern: /\.wasm$/,
+      handler: 'CacheFirst',
+      options: {
+        cacheName: 'wasm-cache',
+        expiration: {
+          maxEntries: 10,
+          maxAgeSeconds: 60 * 60 * 24 * 30, // 30 días
+        },
+      },
+    },
+  ],
+});
 
-const nextConfig: NextConfig = {
-  turbopack: {},  // ← agrega esta línea
-};
+const nextConfig: NextConfig = {};
 
 export default withPWA(nextConfig);
