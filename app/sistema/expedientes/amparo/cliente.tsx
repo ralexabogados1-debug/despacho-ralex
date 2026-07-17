@@ -1,10 +1,21 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useExpedientes } from '@/hooks/useExpedientes'
-import { useTema } from '@/app/sistema/layout' // ajusta la ruta si es necesario
-import { crearExpedienteAmparoLocal } from '@/lib/dbHelpers'
+import { useTema } from '@/app/sistema/layout' // Ajusta la ruta si es necesario
+import {
+  crearExpedienteAmparoLocal,
+  obtenerUsuarioLocalPorEmail,
+  eliminarExpedienteLocal,
+  limpiarExpedienteCacheTrasBorrarOnline,
+  queryColaboradoresLocal,
+  agregarColaboradorLocal,
+  eliminarColaboradorLocal,
+} from '@/lib/dbHelpers'
+import { leerSesionLocal } from '@/lib/authLocal'
 import { syncConSupabase } from '@/lib/sync'
+import { createClient } from '@/lib/supabase/client'
+import BannerOffline from '@/components/BannerOffline'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 🎨 TOKENS OSCUROS (Amparo - dorado)
@@ -60,18 +71,11 @@ export default function ClienteAmparos({
   juzgados: Juzgado[]
   abogados: Abogado[]
   amparos:  any[]
-  // ✅ NUEVO: callback que recarga la lista en el padre (page.tsx) tras
-  // crear un expediente. Sin esto, "amparos" se queda congelado con los
-  // datos con los que se montó la página, aunque el registro ya exista
-  // en SQLite (y eventualmente en Supabase).
   onCreado?: () => Promise<void> | void
 }) {
   const { oscuro } = useTema()
   const T = oscuro ? T_DARK : T_LIGHT
 
-  // 🔄 Se sigue usando SOLO para el estado isOnline (mismo patrón visual
-  // que ya tenías). Ya NO se usa su guardar() para crear el amparo —
-  // ver nota en manejarSubmit().
   const { isOnline } = useExpedientes('expedientes_amparo')
 
   const [abierto,    setAbierto]    = useState(false)
@@ -80,6 +84,41 @@ export default function ClienteAmparos({
   const [mensaje,    setMensaje]    = useState<string | null>(null)
   const [error,      setError]      = useState<string | null>(null)
   const [guardando,  setGuardando]  = useState(false)
+
+  const [abogadoActual, setAbogadoActual] = useState<{ id: number; nombre_completo: string } | null>(null)
+
+  const [colaboradoresForm, setColaboradoresForm] = useState<number[]>([])
+
+  const [detalleAbierto,   setDetalleAbierto]   = useState<any | null>(null)
+  const [eliminarObjetivo, setEliminarObjetivo] = useState<any | null>(null)
+  const [eliminando,       setEliminando]       = useState(false)
+
+  const [colaboradoresDetalle, setColaboradoresDetalle] = useState<any[]>([])
+  const [nuevoColaboradorId,   setNuevoColaboradorId]   = useState<string>('')
+  const [guardandoColaborador, setGuardandoColaborador] = useState(false)
+
+  useEffect(() => {
+    (async () => {
+      const sesion = leerSesionLocal()
+      if (!sesion) return
+      const usuarioLocal = await obtenerUsuarioLocalPorEmail(sesion.email)
+      if (usuarioLocal) {
+        setAbogadoActual({ id: usuarioLocal.id, nombre_completo: usuarioLocal.nombre_completo })
+      }
+    })()
+  }, [])
+
+  useEffect(() => {
+    if (!detalleAbierto) {
+      setColaboradoresDetalle([])
+      setNuevoColaboradorId('')
+      return
+    }
+    (async () => {
+      const lista = await queryColaboradoresLocal(detalleAbierto.id)
+      setColaboradoresDetalle(lista)
+    })()
+  }, [detalleAbierto])
 
   const hoy = new Date().toISOString().split('T')[0]
 
@@ -114,30 +153,26 @@ export default function ClienteAmparos({
     termino:   amparos.filter(a => activo(a.estado) && proxTermo(a.tareas) !== null).length,
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // 🔄 Crear amparo — funciona online y offline vía SQLite + sync_queue
-  //
-  // ✅ CORREGIDO (bug "no column named id"): antes llamaba dos veces a
-  // guardarAmparo() (guardar() de useExpedientes('expedientes_amparo')),
-  // con un objeto pensado para "expedientes" pero enviado a la tabla
-  // "expedientes_amparo". Ahora usa crearExpedienteAmparoLocal(), que
-  // escribe cada objeto en su tabla correcta.
-  //
-  // ✅ NUEVO: al terminar, llama a onCreado() para que page.tsx recargue
-  // la lista (antes el nuevo expediente no aparecía hasta refrescar la
-  // página a mano, porque "amparos" es un useState que solo se llenaba
-  // una vez, al montar).
-  //
-  // ⚠️ Este componente no recibe el id local del usuario actual como prop,
-  // así que por ahora no se crea el registro en expediente_abogados (igual
-  // que en la versión anterior). Si agregas un prop `usuarioActualId`,
-  // pásalo como creadoPorId abajo.
-  // ─────────────────────────────────────────────────────────────────────────
+  function alternarColaboradorForm(id: number) {
+    setColaboradoresForm(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    )
+  }
+
   async function manejarSubmit(formData: FormData) {
     setError(null)
     setGuardando(true)
     try {
-      await crearExpedienteAmparoLocal(
+      const sesion = leerSesionLocal()
+      const usuarioLocal = sesion ? await obtenerUsuarioLocalPorEmail(sesion.email) : null
+
+      if (!usuarioLocal) {
+        setError('No se pudo identificar al usuario en sesión. Vuelve a iniciar sesión.')
+        setGuardando(false)
+        return
+      }
+
+      const { expedienteId } = await crearExpedienteAmparoLocal(
         {
           cliente_nombre: formData.get('quejoso_nombre') as string,
           numero_expediente: formData.get('numero_expediente') as string,
@@ -150,25 +185,26 @@ export default function ClienteAmparos({
           tercero_interesado: (formData.get('tercero_interesado') as string) || null,
           estadio_procesal: (formData.get('estadio_procesal') as string) || null,
           proxima_audiencia: (formData.get('proxima_audiencia') as string) || null,
-          abogado_id: null,
+          abogado_id: usuarioLocal.id,
           descripcion: null,
         },
-        null // creadoPorId — no hay prop de usuario actual en este componente todavía
+        usuarioLocal.id
       )
 
-      // Igual que Civil: si hay conexión, se intenta subir de inmediato.
-      // Si no, queda en sync_queue y se sube solo cuando vuelva la conexión.
+      for (const colabId of colaboradoresForm) {
+        if (colabId === usuarioLocal.id) continue
+        await agregarColaboradorLocal(expedienteId, colabId, false)
+      }
+
       if (navigator.onLine) {
         await syncConSupabase()
       }
 
-      // 🔄 Recargar la lista del padre — ya sea desde Supabase (si está
-      // online) o desde SQLite (si está offline), según cómo resuelva
-      // "cargar()" en page.tsx.
       await onCreado?.()
 
       setMensaje('Juicio de amparo registrado de manera exitosa.')
       setAbierto(false)
+      setColaboradoresForm([])
       setTimeout(() => setMensaje(null), 3000)
     } catch (e) {
       console.error(e)
@@ -178,7 +214,80 @@ export default function ClienteAmparos({
     }
   }
 
+  async function manejarAgregarColaboradorDetalle() {
+    if (!detalleAbierto || !nuevoColaboradorId) return
+    setGuardandoColaborador(true)
+    setError(null)
+    try {
+      await agregarColaboradorLocal(detalleAbierto.id, Number(nuevoColaboradorId), false)
+      if (navigator.onLine) await syncConSupabase()
+
+      const lista = await queryColaboradoresLocal(detalleAbierto.id)
+      setColaboradoresDetalle(lista)
+      setNuevoColaboradorId('')
+      await onCreado?.()
+    } catch (e) {
+      console.error(e)
+      setError('Error al agregar colaborador: ' + String(e))
+    } finally {
+      setGuardandoColaborador(false)
+    }
+  }
+
+  async function manejarQuitarColaboradorDetalle(usuarioId: number) {
+    if (!detalleAbierto) return
+    setGuardandoColaborador(true)
+    setError(null)
+    try {
+      await eliminarColaboradorLocal(detalleAbierto.id, usuarioId)
+      if (navigator.onLine) await syncConSupabase()
+
+      const lista = await queryColaboradoresLocal(detalleAbierto.id)
+      setColaboradoresDetalle(lista)
+      await onCreado?.()
+    } catch (e) {
+      console.error(e)
+      setError('Error al quitar colaborador: ' + String(e))
+    } finally {
+      setGuardandoColaborador(false)
+    }
+  }
+
+  async function manejarEliminar(amp: any) {
+    setEliminando(true)
+    setError(null)
+    try {
+      if (navigator.onLine) {
+        const supabase = createClient()
+        const { error: errSupabase } = await supabase
+          .from('expedientes')
+          .delete()
+          .eq('id', amp.id)
+
+        if (errSupabase) throw errSupabase
+        await limpiarExpedienteCacheTrasBorrarOnline(amp.id)
+      } else {
+        await eliminarExpedienteLocal(amp.id)
+      }
+
+      await onCreado?.()
+      setEliminarObjetivo(null)
+      setDetalleAbierto(null)
+      setMensaje('Expediente eliminado correctamente.')
+      setTimeout(() => setMensaje(null), 3000)
+    } catch (e) {
+      console.error(e)
+      setError('Error al eliminar el expediente: ' + String(e))
+    } finally {
+      setEliminando(false)
+    }
+  }
+
   const s = getStyles(T, oscuro)
+
+  const abogadosDisponiblesDetalle = abogados.filter(
+    a => !colaboradoresDetalle.some(c => c.usuario_id === a.id)
+  )
 
   return (
     <div style={s.root}>
@@ -211,6 +320,8 @@ export default function ClienteAmparos({
         .amp-row-link:hover { background: ${oscuro ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)'}; }
       `}</style>
 
+      <BannerOffline esOffline={!isOnline} />
+
       {/* ── ENCABEZADO ── */}
       <div className="amp-header" style={s.header}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -220,7 +331,6 @@ export default function ClienteAmparos({
             Gestión de juicios de amparo
             &nbsp;·&nbsp;
             <strong style={{ color: T.textPrimary }}>{cnt.todos}</strong> registrados
-            {!isOnline && <span style={{ color: T.gold, marginLeft: 8 }}>· Sin conexión</span>}
           </p>
         </div>
         <button onClick={() => setAbierto(true)} className="amp-btn-new" style={s.btnPrimario}>
@@ -278,7 +388,7 @@ export default function ClienteAmparos({
               <table style={s.table}>
                 <thead>
                   <tr>
-                    {['No. Expediente','Quejoso','Autoridad Responsable','Acto Reclamado','Juzgado Fed.','Estadio Procesal','Próx. Término'].map(h => (
+                    {['No. Expediente','Quejoso','Autoridad Responsable','Acto Reclamado','Juzgado Fed.','Estadio Procesal','Próx. Término','Acciones'].map(h => (
                       <th key={h} style={s.th}>{h}</th>
                     ))}
                   </tr>
@@ -291,7 +401,7 @@ export default function ClienteAmparos({
                     const venc = pt && pt < hoy
                     const act  = activo(amp.estado)
                     return (
-                      <tr key={amp.id} className="amp-tr" style={{ cursor: 'pointer' }}>
+                      <tr key={amp.id} className="amp-tr">
                         <td style={s.td}>
                           <span style={{ fontWeight: 600, color: T.textPrimary, fontSize: 13 }}>{amp.numero_expediente}</span>
                           <div style={s.sub}>{da.tipo_amparo || 'Amparo Indirecto'}</div>
@@ -306,7 +416,7 @@ export default function ClienteAmparos({
                         <td style={{ ...s.td, color: T.textMuted, fontSize: 13 }}>{da.estadio_procesal ?? '—'}</td>
                         <td style={s.td}>
                           {!act ? (
-                            <span style={{ ...s.pill, background: T.goldAlpha, color: T.gold, border: `1px solid ${T.gold}44` }}>Resuelto</span>
+                            <span style={{ ...s.pill, background: T.goldAlpha, color: T.gold, borderWidth: '1px', borderStyle: 'solid', borderColor: `${T.gold}44` }}>Resuelto</span>
                           ) : pt ? (
                             <span style={{ fontWeight: esH || venc ? 600 : 400, color: venc ? T.red : esH ? T.amber : T.textMuted, fontSize: 13 }}>
                               {venc ? '⚠ ' : esH ? '● ' : ''}{pt}
@@ -314,6 +424,29 @@ export default function ClienteAmparos({
                           ) : (
                             <span style={{ color: T.textFaint, fontSize: 13 }}>—</span>
                           )}
+                        </td>
+                        <td style={s.td}>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button
+                              onClick={() => setDetalleAbierto(amp)}
+                              style={s.btnIcono(T)}
+                              title="Ver más"
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" />
+                                <circle cx="12" cy="12" r="3" />
+                              </svg>
+                            </button>
+                            <button
+                              onClick={() => setEliminarObjetivo(amp)}
+                              style={{ ...s.btnIcono(T), color: T.red, borderColor: `${T.red}44` }}
+                              title="Eliminar"
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z" />
+                              </svg>
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     )
@@ -326,7 +459,7 @@ export default function ClienteAmparos({
               {filtrados.map(amp => {
                 const da   = amp.expedientes_amparo?.[0] ?? amp.expedientes_amparo ?? {}
                 const pt   = proxTermo(amp.tareas)
-                const esH  = pt === hoy
+                const esH   = pt === hoy
                 const venc = pt && pt < hoy
                 const act  = activo(amp.estado)
                 return (
@@ -360,7 +493,7 @@ export default function ClienteAmparos({
         )}
       </div>
 
-      {/* ── MODAL — centrado, con altura máxima y scroll interno ── */}
+      {/* ── MODAL — Nuevo Amparo ── */}
       {abierto && (
         <div style={s.overlay} onClick={() => setAbierto(false)}>
           <div style={s.modal} onClick={e => e.stopPropagation()}>
@@ -432,7 +565,6 @@ export default function ClienteAmparos({
                         <input name="tercero_interesado" style={s.input} placeholder="Si aplica" />
                       </Campo>
                     </div>
-                    {/* 🆕 Campos nuevos detectados en la app anterior */}
                     <div className="amp-col-form" style={{ flex: '1 1 200px' }}>
                       <Campo label="Estadio Procesal" T={T}>
                         <input name="estadio_procesal" style={s.input} placeholder="Ej: Suspensión Provisional" />
@@ -443,7 +575,44 @@ export default function ClienteAmparos({
                         <input name="proxima_audiencia" type="date" style={s.input} />
                       </Campo>
                     </div>
+                    <div className="amp-col-form" style={{ flex: '1 1 200px' }}>
+                      <Campo label="Abogado responsable" T={T}>
+                        <input
+                          type="text"
+                          readOnly
+                          disabled
+                          value={abogadoActual?.nombre_completo ?? 'Cargando sesión...'}
+                          style={{ ...s.input, opacity: 0.75, cursor: 'not-allowed' }}
+                        />
+                      </Campo>
+                    </div>
                   </div>
+                </Seccion>
+
+                <Seccion titulo="Colaboradores" icono="👥" T={T} oscuro={oscuro}>
+                  <p style={{ fontSize: 11.5, color: T.textMuted, margin: '0 0 10px' }}>
+                    {abogadoActual?.nombre_completo ?? 'Tú'} queda como responsable automáticamente.
+                    Marca a quién más debe tener acceso a este expediente.
+                  </p>
+                  {abogados.filter(a => a.id !== abogadoActual?.id).length === 0 ? (
+                    <p style={{ fontSize: 12, color: T.textFaint }}>No hay otros abogados registrados.</p>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 6 }}>
+                      {abogados.filter(a => a.id !== abogadoActual?.id).map(ab => (
+                        <label
+                          key={ab.id}
+                          style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: T.textPrimary, cursor: 'pointer' }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={colaboradoresForm.includes(ab.id)}
+                            onChange={() => alternarColaboradorForm(ab.id)}
+                          />
+                          {ab.nombre_completo}
+                        </label>
+                      ))}
+                    </div>
+                  )}
                 </Seccion>
               </div>
 
@@ -454,6 +623,163 @@ export default function ClienteAmparos({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL — Ver más (detalle completo) ── */}
+      {detalleAbierto && (
+        <div style={s.overlay} onClick={() => setDetalleAbierto(null)}>
+          <div style={s.modal} onClick={e => e.stopPropagation()}>
+            <div style={s.modalHeader}>
+              <div>
+                <h2 style={s.modalTitle}>{detalleAbierto.numero_expediente}</h2>
+                <p style={s.modalSub}>Detalle completo del expediente</p>
+              </div>
+              <button onClick={() => setDetalleAbierto(null)} style={s.btnCerrar} aria-label="Cerrar">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M18 6L6 18M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px' }}>
+              {error && <Alerta tipo="error" oscuro={oscuro}>{error}</Alerta>}
+
+              {(() => {
+                const da = detalleAbierto.expedientes_amparo?.[0] ?? detalleAbierto.expedientes_amparo ?? {}
+                return (
+                  <>
+                    <Seccion titulo="Datos generales" icono="📋" T={T} oscuro={oscuro}>
+                      <DetalleFila label="Quejoso" valor={detalleAbierto.clientes?.nombre_completo} T={T} />
+                      <DetalleFila label="Estado" valor={detalleAbierto.estado} T={T} />
+                      <DetalleFila label="Tipo de Amparo" valor={da.tipo_amparo} T={T} />
+                      <DetalleFila label="Fecha de Presentación" valor={detalleAbierto.fecha_inicio} T={T} />
+                    </Seccion>
+                    <Seccion titulo="Autoridad y acto reclamado" icono="⚖️" T={T} oscuro={oscuro}>
+                      <DetalleFila label="Autoridad Responsable" valor={da.autoridad_responsable} T={T} />
+                      <DetalleFila label="Acto Reclamado" valor={da.acto_reclamado} T={T} />
+                      <DetalleFila label="Tercero Interesado" valor={da.tercero_interesado} T={T} />
+                    </Seccion>
+                    <Seccion titulo="Juzgado y trámite" icono="🏛️" T={T} oscuro={oscuro}>
+                      <DetalleFila label="Juzgado Federal" valor={detalleAbierto.juzgados?.nombre} T={T} />
+                      <DetalleFila label="Ciudad" valor={detalleAbierto.juzgados?.ciudad} T={T} />
+                      <DetalleFila label="Estadio Procesal" valor={da.estadio_procesal} T={T} />
+                      <DetalleFila label="Próxima Audiencia" valor={da.proxima_audiencia} T={T} />
+                    </Seccion>
+
+                    {/* 🆕 Colaboradores */}
+                    <Seccion titulo="Colaboradores" icono="👥" T={T} oscuro={oscuro}>
+                      {colaboradoresDetalle.length === 0 ? (
+                        <p style={{ fontSize: 12, color: T.textFaint, margin: 0 }}>Sin colaboradores registrados.</p>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 6, marginBottom: 12 }}>
+                          {colaboradoresDetalle.map(c => (
+                            <div
+                              key={c.usuario_id}
+                              style={{
+                                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                padding: '6px 10px', borderRadius: 6,
+                                background: T.surface, border: `1px solid ${T.border}`,
+                              }}
+                            >
+                              <span style={{ fontSize: 13, color: T.textPrimary }}>
+                                {c.nombre_completo}
+                                {c.es_responsable && (
+                                  <span style={{ marginLeft: 6, fontSize: 10.5, color: T.gold }}>· Responsable</span>
+                                )}
+                              </span>
+                              <button
+                                onClick={() => manejarQuitarColaboradorDetalle(c.usuario_id)}
+                                disabled={guardandoColaborador}
+                                style={{ ...s.btnIcono(T), color: T.red, borderColor: `${T.red}44`, width: 22, height: 22 }}
+                                title="Quitar colaborador"
+                              >
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                  <path d="M18 6L6 18M6 6l12 12" />
+                                </svg>
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {abogadosDisponiblesDetalle.length > 0 && (
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <select
+                            value={nuevoColaboradorId}
+                            onChange={e => setNuevoColaboradorId(e.target.value)}
+                            style={{ ...s.input, flex: 1 }}
+                          >
+                            <option value="">Agregar colaborador...</option>
+                            {abogadosDisponiblesDetalle.map(a => (
+                              <option key={a.id} value={a.id}>{a.nombre_completo}</option>
+                            ))}
+                          </select>
+                          <button
+                            onClick={manejarAgregarColaboradorDetalle}
+                            disabled={!nuevoColaboradorId || guardandoColaborador}
+                            style={{ ...s.btnSec, whiteSpace: 'nowrap' as const }}
+                          >
+                            {guardandoColaborador ? 'Agregando...' : 'Agregar'}
+                          </button>
+                        </div>
+                      )}
+                    </Seccion>
+                  </>
+                )
+              })()}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '16px 24px', borderTop: `1px solid ${T.border}` }}>
+              <button
+                onClick={() => setEliminarObjetivo(detalleAbierto)}
+                style={{ ...s.btnSec, color: T.red, borderColor: `${T.red}55` }}
+              >
+                Eliminar expediente
+              </button>
+              <button onClick={() => setDetalleAbierto(null)} style={s.btnPrimario}>Cerrar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL — 🆕 Confirmar eliminación ── */}
+      {eliminarObjetivo && (
+        <div style={{ ...s.overlay, zIndex: 300 }} onClick={() => !eliminando && setEliminarObjetivo(null)}>
+          <div style={{ ...s.modal, maxWidth: 420, maxHeight: 'none' }} onClick={e => e.stopPropagation()}>
+            <div style={{ padding: 24 }}>
+              <h2 style={s.modalTitle}>¿Eliminar expediente?</h2>
+              <p style={{ fontSize: 13, color: T.textMuted, marginTop: 8 }}>
+                Vas a eliminar el expediente{' '}
+                <strong style={{ color: T.textPrimary }}>{eliminarObjetivo.numero_expediente}</strong>.
+                Esta acción no se puede deshacer.
+              </p>
+              {!isOnline && (
+                <div style={{ marginTop: 12 }}>
+                  <Alerta tipo="error" oscuro={oscuro}>
+                    Necesitas conexión a internet para eliminar un expediente.
+                  </Alerta>
+                </div>
+              )}
+              {error && (
+                <div style={{ marginTop: 12 }}>
+                  <Alerta tipo="error" oscuro={oscuro}>{error}</Alerta>
+                </div>
+              )}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '0 24px 24px' }}>
+              <button onClick={() => setEliminarObjetivo(null)} disabled={eliminando} style={s.btnSec}>
+                Cancelar
+              </button>
+              <button
+                onClick={() => manejarEliminar(eliminarObjetivo)}
+                disabled={!isOnline || eliminando}
+                style={{ ...s.btnPrimario, background: T.red, opacity: (!isOnline || eliminando) ? 0.5 : 1 }}
+              >
+                {eliminando ? 'Eliminando...' : 'Sí, eliminar'}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -510,15 +836,24 @@ function Campo({ label, T, children }: { label: string; T: typeof T_DARK; childr
   )
 }
 
+// 🆕 Fila de solo lectura para el modal de detalle
+function DetalleFila({ label, valor, T }: { label: string; valor: any; T: typeof T_DARK }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '6px 0', borderBottom: `1px solid ${T.border}` }}>
+      <span style={{ fontSize: 12, color: T.textMuted }}>{label}</span>
+      <span style={{ fontSize: 13, color: T.textPrimary, fontWeight: 500, textAlign: 'right' }}>{valor || '—'}</span>
+    </div>
+  )
+}
 // ─────────────────────────────────────────────────────────────────────────────
-// Función generadora de estilos dinámica
+// Función generadora de estilos dinámica (Corregida para TypeScript)
 // ─────────────────────────────────────────────────────────────────────────────
 const getStyles = (T: typeof T_DARK, oscuro: boolean) => ({
   root: {
     width: '100%',
     padding: '16px 12px',
     boxSizing: 'border-box' as const,
-  },
+  } as React.CSSProperties,
   header: {
     display: 'flex',
     justifyContent: 'space-between',
@@ -526,7 +861,7 @@ const getStyles = (T: typeof T_DARK, oscuro: boolean) => ({
     flexWrap: 'wrap' as const,
     gap: 12,
     marginBottom: 16,
-  },
+  } as React.CSSProperties,
   titulo: {
     fontSize: 'clamp(18px, 5vw, 24px)',
     fontWeight: 700,
@@ -548,7 +883,7 @@ const getStyles = (T: typeof T_DARK, oscuro: boolean) => ({
     borderRadius: '50%',
     background: T.gold,
     flexShrink: 0,
-  },
+  } as React.CSSProperties,
   btnPrimario: {
     display: 'flex',
     alignItems: 'center',
@@ -568,14 +903,18 @@ const getStyles = (T: typeof T_DARK, oscuro: boolean) => ({
     padding: '8px 16px',
     background: 'transparent',
     color: T.textMuted,
-    border: `1px solid ${T.border}`,
+    borderWidth: '1px',
+    borderStyle: 'solid',
+    borderColor: T.border,
     borderRadius: 6,
     fontSize: 13,
     cursor: 'pointer',
   } as React.CSSProperties,
   btnCerrar: {
     width: 28, height: 28,
-    border: `1px solid ${T.border}`,
+    borderWidth: '1px',
+    borderStyle: 'solid',
+    borderColor: T.border,
     borderRadius: 6,
     background: T.surfaceLow,
     color: T.textMuted,
@@ -583,24 +922,38 @@ const getStyles = (T: typeof T_DARK, oscuro: boolean) => ({
     cursor: 'pointer',
     flexShrink: 0,
   } as React.CSSProperties,
+  btnIcono: (T: typeof T_DARK) => ({
+    width: 26, height: 26,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    borderWidth: '1px',
+    borderStyle: 'solid',
+    borderColor: T.border,
+    borderRadius: 6,
+    background: T.surfaceLow,
+    color: T.textMuted,
+    cursor: 'pointer',
+    flexShrink: 0,
+  }) as React.CSSProperties,
   filtrosRow: {
     display: 'flex',
     alignItems: 'center',
     flexWrap: 'wrap' as const,
     gap: 8,
     marginBottom: 14,
-  },
+  } as React.CSSProperties,
   searchIcon: {
     position: 'absolute' as const,
     left: 10,
     color: T.textMuted,
     pointerEvents: 'none' as const,
-  },
+  } as React.CSSProperties,
   searchInput: {
     width: '100%',
     padding: '8px 10px 8px 30px',
     background: T.surfaceLow,
-    border: `1px solid ${T.border}`,
+    borderWidth: '1px',
+    borderStyle: 'solid',
+    borderColor: T.border,
     borderRadius: 6,
     color: T.textPrimary,
     fontSize: 13,
@@ -610,7 +963,9 @@ const getStyles = (T: typeof T_DARK, oscuro: boolean) => ({
     padding: '6px 12px',
     background: activo ? T.goldAlpha : 'transparent',
     color:      activo ? T.gold : T.textMuted,
-    border:     `1px solid ${activo ? `${T.gold}66` : T.border}`,
+    borderWidth: '1px',
+    borderStyle: 'solid',
+    borderColor: activo ? `${T.gold}66` : T.border,
     borderRadius: 6,
     cursor: 'pointer',
     fontSize: 12,
@@ -619,7 +974,9 @@ const getStyles = (T: typeof T_DARK, oscuro: boolean) => ({
   }),
   tabla: {
     background: T.surface,
-    border: `1px solid ${T.border}`,
+    borderWidth: '1px',
+    borderStyle: 'solid',
+    borderColor: T.border,
     borderRadius: 8,
     overflow: 'hidden',
   } as React.CSSProperties,
@@ -631,12 +988,12 @@ const getStyles = (T: typeof T_DARK, oscuro: boolean) => ({
     padding: '32px 16px',
     color: T.textFaint,
     fontSize: 13,
-  },
+  } as React.CSSProperties,
   table: {
     width: '100%',
     borderCollapse: 'collapse' as const,
-    minWidth: 700,
-  },
+    minWidth: 780,
+  } as React.CSSProperties,
   th: {
     padding: '8px 14px',
     fontSize: 10.5,
@@ -646,11 +1003,15 @@ const getStyles = (T: typeof T_DARK, oscuro: boolean) => ({
     textTransform: 'uppercase' as const,
     textAlign: 'left' as const,
     background: T.surfaceLow,
-    borderBottom: `1px solid ${T.border}`,
-  },
+    borderBottomWidth: '1px',
+    borderBottomStyle: 'solid',
+    borderBottomColor: T.border,
+  } as React.CSSProperties, // 👈 Solucionado aquí
   td: {
     padding: '10px 14px',
-    borderBottom: `1px solid ${T.border}`,
+    borderBottomWidth: '1px',
+    borderBottomStyle: 'solid',
+    borderBottomColor: T.border,
     verticalAlign: 'middle' as const,
   } as React.CSSProperties,
   sub: { fontSize: 11, color: T.textFaint, marginTop: 2 } as React.CSSProperties,
@@ -660,7 +1021,9 @@ const getStyles = (T: typeof T_DARK, oscuro: boolean) => ({
     alignItems: 'center',
     gap: 10,
     padding: '10px 12px',
-    borderBottom: `1px solid ${T.border}`,
+    borderBottomWidth: '1px',
+    borderBottomStyle: 'solid',
+    borderBottomColor: T.border,
     textDecoration: 'none',
     color: 'inherit',
   } as React.CSSProperties,
@@ -686,10 +1049,12 @@ const getStyles = (T: typeof T_DARK, oscuro: boolean) => ({
     justifyContent: 'center',
     padding: '12px',
     zIndex: 200,
-  },
+  } as React.CSSProperties,
   modal: {
     background: T.surface,
-    border: `1px solid ${T.border}`,
+    borderWidth: '1px',
+    borderStyle: 'solid',
+    borderColor: T.border,
     borderRadius: 12,
     width: '100%',
     maxWidth: 600,
@@ -698,7 +1063,7 @@ const getStyles = (T: typeof T_DARK, oscuro: boolean) => ({
     flexDirection: 'column' as const,
     overflow: 'hidden',
     boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)',
-  },
+  } as React.CSSProperties, // 👈 Solucionado aquí también
   modalHeader: {
     display: 'flex',
     justifyContent: 'space-between',
@@ -722,7 +1087,9 @@ const getStyles = (T: typeof T_DARK, oscuro: boolean) => ({
     width: '100%',
     padding: '10px 12px',
     background: T.surfaceLow,
-    border: `1px solid ${T.border}`,
+    borderWidth: '1px',
+    borderStyle: 'solid',
+    borderColor: T.border,
     borderRadius: 6,
     color: T.textPrimary,
     fontSize: 13,

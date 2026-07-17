@@ -7,6 +7,7 @@ import { useEventos } from '@/hooks/useEventos'
 import { leerSesionLocal } from '@/lib/authLocal'
 import { generarIdTemporal, obtenerUsuarioLocalPorEmail } from '@/lib/dbHelpers'
 import { mapearEventosCrudos, type EventoUI } from '@/lib/eventosUtils'
+import BannerOffline from '@/components/BannerOffline'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 🎨 TOKENS OSCUROS
@@ -257,6 +258,8 @@ export default function CalendarioCliente({
 
   return (
     <div style={{ padding: 'clamp(16px, 4vw, 40px)', color: T.textPrimary, width: '100%', boxSizing: 'border-box' }}>
+
+      <BannerOffline esOffline={!isOnline} />
 
       <style>{`
         .cal-grid {

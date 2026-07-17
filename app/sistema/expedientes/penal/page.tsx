@@ -23,6 +23,10 @@ async function getUserConTimeout(
     if (!resultado || !('data' in resultado)) return null
     return resultado.data.user ?? null
   } catch {
+    // Captura errores de red reales (offline, DNS, CORS, etc.)
+    // El "Failed to fetch" que ves en consola es solo el log
+    // automático del navegador para el fetch fallido; no es un
+    // error sin manejar de la app.
     return null
   }
 }
@@ -51,9 +55,18 @@ export default function PenalPage() {
       const sesionLocal = leerSesionLocal()
       const cacheValido = sesionLocal && sesionLocal.expires_at > Date.now()
 
-      // 1. Intentar obtener usuario real con timeout
-      const user = await getUserConTimeout(supabase)
+      // 1. Si el navegador ya sabe que no hay conexión, ni intentamos el fetch.
+      //    Esto evita el error de red innecesario y el ruido en consola cuando
+      //    está completamente offline (ERR_INTERNET_DISCONNECTED).
+      const user = navigator.onLine
+        ? await getUserConTimeout(supabase)
+        : null
+
       if (!user && !cacheValido) {
+        // Solo forzamos login si NO hay usuario remoto Y NO hay sesión
+        // local válida. Si hay sesión local (aunque el token remoto haya
+        // expirado o no haya red), dejamos continuar para no bloquear
+        // el uso offline.
         router.push('/login')
         return
       }

@@ -31,7 +31,7 @@ export default function MiPerfilPage() {
   const [expedientes, setExpedientes]     = useState<any[]>([])
   const [conteoTareas, setConteoTareas]   = useState(0)
   const [conteoEventos, setConteoEventos] = useState(0)
-  const [actividad, setActividad]         = useState<any[]>([])
+  const [actividad, setActividad]         = useState<any[]>([])  // siempre []
   const [loading, setLoading]             = useState(true)
   const [esOffline, setEsOffline]         = useState(false)
 
@@ -52,7 +52,7 @@ export default function MiPerfilPage() {
           setExpedientes(local.expedientes)
           setConteoTareas(local.conteoTareas)
           setConteoEventos(local.conteoEventos)
-          setActividad(local.actividad)
+          setActividad([]) // sin actividad
         } catch (e) {
           console.error('SQLite error (mi-perfil):', e)
         }
@@ -60,7 +60,13 @@ export default function MiPerfilPage() {
         setLoading(false)
       }
 
-      const user = await getUserConTimeout(supabase)
+      // 🔧 Si el navegador ya sabe que no hay conexión, ni intentamos el
+      // fetch a Supabase — evita el error de red innecesario y el ruido en
+      // consola (Failed to fetch / ERR_INTERNET_DISCONNECTED) cuando está
+      // completamente offline.
+      const user = navigator.onLine
+        ? await getUserConTimeout(supabase)
+        : null
 
       if (!user) {
         if (!cacheValido || !sesionLocal?.email) { router.push('/login'); return }
@@ -105,21 +111,18 @@ export default function MiPerfilPage() {
           .neq('estado_kanban', 'Completada')
         if (errTareas) console.error('🔴 Error cargando tareas:', errTareas)
 
+        // ✅ Usamos la tabla 'eventos' (no 'eventos_calendario')
         const { count: conteoEventosData, error: errEventos } = await supabase
-          .from('eventos_calendario').select('id', { count: 'exact', head: true })
+          .from('eventos').select('id', { count: 'exact', head: true })
           .eq('usuario_id', miId)
         if (errEventos) console.error('🔴 Error cargando eventos:', errEventos)
 
-        const { data: actividadData, error: errActividad } = await supabase
-          .from('actividad_reciente').select('*')
-          .eq('usuario_id', miId).order('created_at', { ascending: false }).limit(3)
-        if (errActividad) console.error('🔴 Error cargando actividad:', errActividad)
-
+        // ❌ NO consultamos 'actividad_reciente' — no existe
         setUsuario(miPerfil)
         setExpedientes(expedientesNormalizados)
         setConteoTareas(conteoTareasData ?? 0)
         setConteoEventos(conteoEventosData ?? 0)
-        setActividad(actividadData ?? [])
+        setActividad([]) // siempre vacío
         setLoading(false)
       } catch (e) {
         console.error('Mi Perfil error:', e)
@@ -158,7 +161,6 @@ export default function MiPerfilPage() {
         expedientes={expedientes}
         conteoTareas={conteoTareas}
         conteoEventos={conteoEventos}
-        actividad={actividad}
       />
     </div>
   )

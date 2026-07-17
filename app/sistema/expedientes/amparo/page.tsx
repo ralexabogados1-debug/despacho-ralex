@@ -120,7 +120,13 @@ export default function AmparosPage() {
       setLoading(false)
     }
 
-    const user = await getUserConTimeout(supabase)
+    // 🔧 Si el navegador ya sabe que no hay conexión, ni intentamos el
+    // fetch a Supabase — evita el error de red innecesario y el ruido en
+    // consola (Failed to fetch / ERR_INTERNET_DISCONNECTED) cuando está
+    // completamente offline.
+    const user = navigator.onLine
+      ? await getUserConTimeout(supabase)
+      : null
 
     if (!user) {
       if (!cacheValido) {
@@ -205,14 +211,7 @@ export default function AmparosPage() {
     <div style={{ padding: 'clamp(20px, 4vw, 40px) clamp(20px, 5vw, 40px)', width: '100%' }}>
       {esOffline && (
         <div style={{
-          display: 'flex', alignItems: 'center', gap: 10,
-          background: 'rgba(212,175,55,0.08)', border: '0.5px solid rgba(212,175,55,0.25)',
-          borderRadius: 10, padding: '10px 16px', marginBottom: 16,
         }}>
-          <span style={{ fontSize: 15 }}>📡</span>
-          <span style={{ fontSize: 13, color: '#d4af37' }}>
-            Modo sin conexión — mostrando datos guardados localmente. Los cambios se sincronizarán al recuperar internet.
-          </span>
         </div>
       )}
       <ClienteAmparos

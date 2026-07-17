@@ -7,6 +7,7 @@ import { useTema } from '@/app/sistema/layout'
 import { leerSesionLocal } from '@/lib/authLocal'
 import { query } from '@/lib/dbHelpers'
 import { syncConSupabase } from '@/lib/sync'
+import BannerOffline from '@/components/BannerOffline'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 🎨 TOKENS OSCUROS
@@ -182,8 +183,14 @@ export default function DashboardPage() {
         setLoading(false)
       }
 
-      // 1. Intentar obtener usuario Supabase con timeout
-      const user = await getUserConTimeout(supabase)
+      // 1. Intentar obtener usuario Supabase con timeout.
+      //    🔧 Si el navegador ya sabe que no hay conexión, ni lo intentamos
+      //    — evita el error de red innecesario y el ruido en consola
+      //    (Failed to fetch / ERR_INTERNET_DISCONNECTED) cuando está
+      //    completamente offline.
+      const user = navigator.onLine
+        ? await getUserConTimeout(supabase)
+        : null
 
       if (!user) {
         if (!cacheValido) {
@@ -274,23 +281,7 @@ export default function DashboardPage() {
         }
       `}</style>
 
-      {/* Banner offline */}
-      {esOffline && (
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10,
-          background: oscuro ? 'rgba(212,175,55,0.08)' : 'rgba(184,134,11,0.07)',
-          border: `0.5px solid ${oscuro ? 'rgba(212,175,55,0.25)' : 'rgba(184,134,11,0.30)'}`,
-          borderRadius: 10,
-          padding: '10px 16px',
-        }}>
-          <span style={{ fontSize: 15 }}>📡</span>
-          <span style={{ fontSize: 13, color: T.gold }}>
-            Modo sin conexión — mostrando datos guardados localmente.
-          </span>
-        </div>
-      )}
+      <BannerOffline esOffline={esOffline} />
 
       <div>
         <h1 style={styles.heading}>
@@ -336,30 +327,33 @@ export default function DashboardPage() {
               <span className="dash-col-ocultar dash-col-fecha">Fecha</span>
             </div>
 
-            {recientes.map((exp: any) => (
-              <a
-                key={exp.id}
-                href={`/sistema/expedientes/${exp.materias?.nombre?.toLowerCase() ?? 'civil'}/${exp.id}`}
-                className="dash-tabla-fila"
-                style={{ ...styles.tablaFila, ...styles.tablaFilaLink }}
-              >
-                <span style={{ color: T.textPrimary, fontWeight: 500, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {exp.numero_expediente}
-                </span>
-                <span className="dash-col-ocultar" style={{ fontSize: 13, color: T.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {exp.clientes?.nombre_completo ?? '—'}
-                </span>
-                <span className="dash-col-ocultar" style={{ fontSize: 13, color: T.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {exp.contraparte ?? '—'}
-                </span>
-                <span>
-                  <MateriaChip nombre={exp.materias?.nombre ?? '—'} T={T} />
-                </span>
-                <span className="dash-col-ocultar dash-col-fecha" style={{ fontSize: 12, color: T.textFaint, whiteSpace: 'nowrap' }}>
-                  {new Date(exp.created_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}
-                </span>
-              </a>
-            ))}
+            {recientes.map((exp: any) => {
+              const href = '/sistema/expedientes/' + (exp.materias?.nombre?.toLowerCase() ?? 'civil') + '/' + exp.id
+              return (
+                <a
+                  key={exp.id}
+                  href={href}
+                  className="dash-tabla-fila"
+                  style={{ ...styles.tablaFila, ...styles.tablaFilaLink }}
+                >
+                  <span style={{ color: T.textPrimary, fontWeight: 500, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {exp.numero_expediente}
+                  </span>
+                  <span className="dash-col-ocultar" style={{ fontSize: 13, color: T.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {exp.clientes?.nombre_completo ?? '—'}
+                  </span>
+                  <span className="dash-col-ocultar" style={{ fontSize: 13, color: T.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {exp.contraparte ?? '—'}
+                  </span>
+                  <span>
+                    <MateriaChip nombre={exp.materias?.nombre ?? '—'} T={T} />
+                  </span>
+                  <span className="dash-col-ocultar dash-col-fecha" style={{ fontSize: 12, color: T.textFaint, whiteSpace: 'nowrap' }}>
+                    {new Date(exp.created_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}
+                  </span>
+                </a>
+              )
+            })}
           </div>
         </section>
       )}
@@ -405,7 +399,7 @@ function getStyles(T: any) {
     resumenBanner: { display: 'flex', alignItems: 'center', gap: 14, background: T.surface, border: `0.5px solid ${T.border}`, borderRadius: 10, padding: '10px 18px', flexWrap: 'wrap' as const } as React.CSSProperties,
     dividerV:      { display: 'inline-block', width: 1, height: 14, background: T.border },
     statsGrid:     { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 14 } as React.CSSProperties,
-    statCard:      { background: T.surface, border: `0.5px solid ${T.border}`, borderRadius: 12, padding: '16px 18px', display: 'flex', alignItems: 'center', gap: 14, transition: 'border-color 0.15s, background 0.15s', cursor: 'pointer', minWidth: 0 } as React.CSSProperties,
+    statCard:      { background: T.surface, borderWidth: '0.5px', borderStyle: 'solid', borderColor: T.border, borderRadius: 12, padding: '16px 18px', display: 'flex', alignItems: 'center', gap: 14, transition: 'border-color 0.15s, background 0.15s', cursor: 'pointer', minWidth: 0 } as React.CSSProperties,
     statIcon:      { width: 38, height: 38, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 } as React.CSSProperties,
     sectionHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, gap: 12, flexWrap: 'wrap' as const } as React.CSSProperties,
     sectionTitle:  { fontSize: 14, fontWeight: 600, color: T.textMuted, margin: 0, letterSpacing: '-0.1px' } as React.CSSProperties,

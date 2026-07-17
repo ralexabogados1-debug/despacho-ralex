@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
 import { guardarSesionLocal, leerSesionLocal, renovarSesion, borrarSesionLocal } from '@/lib/authLocal'
 import { syncConSupabase } from '@/lib/sync'
+import NotificacionesEventos from './NotificacionesEventos' // ── 🔔 Importación del componente de alertas
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 🎨 TOKENS OSCUROS
@@ -532,6 +533,10 @@ export default function SistemaLayout({ children }: { children: React.ReactNode 
             </footer>
           </div>
         </div>
+
+        {/* ── 🔔 NOTIFICACIONES GLOBALES DE VENCIMIENTO ── */}
+        <NotificacionesEventos />
+
       </SesionCtx.Provider>
     </TemaCtx.Provider>
   )

@@ -80,7 +80,13 @@ export default function TareasPage() {
         setLoading(false)
       }
 
-      const user = await getUserConTimeout(supabase)
+      // 🔧 Si el navegador ya sabe que no hay conexión, ni intentamos el
+      // fetch a Supabase — evita el error de red innecesario y el ruido en
+      // consola (Failed to fetch / ERR_INTERNET_DISCONNECTED) cuando está
+      // completamente offline.
+      const user = navigator.onLine
+        ? await getUserConTimeout(supabase)
+        : null
 
       if (!user) {
         if (!cacheValido) {

@@ -1,10 +1,12 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { crearTarea, actualizarEstadoTarea, eliminarTarea } from './actions'
 import { useTema } from '@/app/sistema/layout' // Ajusta la ruta si es necesario
 import { useTareas } from '@/hooks/useTareas'
 import { generarIdTemporal } from '@/lib/dbHelpers'
+import BannerOffline from '@/components/BannerOffline'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 🎨 TOKENS OSCUROS
@@ -77,20 +79,24 @@ export default function TableroTareasCliente({
   usuarioActualId: number
 }) {
   const { oscuro } = useTema()
+  const router = useRouter()
   const T = oscuro ? T_DARK : T_LIGHT
 
-  // 🔄 Hook offline-first — misma firma que useExpedientes (Civil/Penal/Amparo)
   const {
     tareas: tareasLocales,
     isOnline,
-    syncing,
     guardar: guardarTareaLocal,
     eliminar: eliminarTareaLocal,
   } = useTareas()
 
-  // 🔧 Cuando hay conexión usamos el arreglo renderizado por el servidor (más
-  // fresco tras cada revalidatePath); sin conexión, caemos al cache SQLite.
-  const tareasActivas = (isOnline ? tareasInit : tareasLocales) ?? []
+  // 1. Estado local reactivo para manejar actualizaciones instantáneas
+  const [tareas, setTareas] = useState<Tarea[]>([])
+
+  // Sincronizar el estado cuando Next.js traiga nuevos datos del servidor o cambie la conexión
+  useEffect(() => {
+    const activas = (isOnline ? tareasInit : tareasLocales) ?? []
+    setTareas(activas)
+  }, [tareasInit, tareasLocales, isOnline])
 
   const [abierto, setAbierto]     = useState(false)
   const [busqueda, setBusqueda]   = useState('')
@@ -99,7 +105,8 @@ export default function TableroTareasCliente({
 
   const css = useMemo(() => getStyles(T, oscuro), [T, oscuro])
 
-  const tareasFiltradas = tareasActivas.filter((t) => {
+  // Filtrado reactivo basado en el estado local "tareas"
+  const tareasFiltradas = tareas.filter((t) => {
     const term = busqueda.toLowerCase()
     const ok =
       t.descripcion?.toLowerCase().includes(term) ||
@@ -116,10 +123,10 @@ export default function TableroTareasCliente({
   const colCompletadas = tareasFiltradas.filter(t => t.estado_kanban === 'Completada' || t.completada)
 
   const cnt = {
-    todos:       tareasActivas.length,
-    mis_tareas:  tareasActivas.filter(t => t.asignado_a_usuario_id === usuarioActualId).length,
-    pendientes:  tareasActivas.filter(t => t.estado_kanban !== 'Completada' && !t.completada).length,
-    completadas: tareasActivas.filter(t => t.estado_kanban === 'Completada' || t.completada).length,
+    todos:       tareas.length,
+    mis_tareas:  tareas.filter(t => t.asignado_a_usuario_id === usuarioActualId).length,
+    pendientes:  tareas.filter(t => t.estado_kanban !== 'Completada' && !t.completada).length,
+    completadas: tareas.filter(t => t.estado_kanban === 'Completada' || t.completada).length,
   }
 
   const renderFecha = (fechaStr: string | null) => {
@@ -147,15 +154,31 @@ export default function TableroTareasCliente({
     )
   }
 
-  // 🔧 Mover tarea entre columnas — online usa el Server Action (revalida la
-  // página); sin conexión actualiza la fila local vía useTareas().guardar(),
-  // que solo toca las columnas indicadas (estado_kanban/completada) dejando
-  // el resto de la fila intacta gracias al ON CONFLICT DO UPDATE de useTablaLocal.
+  // 🔄 Función de Cambio de Estado con Optimistic Update
   const cambiarEstado = async (id: number, estado: 'Por Hacer' | 'En Progreso' | 'Completada') => {
     setError(null)
+
+    // Guardamos copia de seguridad para revertir si hay error
+    const estadoAnterior = [...tareas]
+
+    // 1. Actualización visual instantánea en el cliente
+    setTareas(prev =>
+      prev.map(t =>
+        t.id === id
+          ? { ...t, estado_kanban: estado, completada: estado === 'Completada' }
+          : t
+      )
+    )
+
+    // 2. Persistencia
     if (isOnline) {
       const r = await actualizarEstadoTarea(id, estado)
-      if (r?.error) setError(r.error)
+      if (r?.error) {
+        setError(r.error)
+        setTareas(estadoAnterior) // Revertir en fallo
+      } else {
+        router.refresh() // Sincronizar datos del servidor silenciosamente
+      }
     } else {
       try {
         await guardarTareaLocal({
@@ -165,38 +188,48 @@ export default function TableroTareasCliente({
         })
       } catch (e: any) {
         setError(e?.message ?? 'No se pudo actualizar la tarea sin conexión.')
+        setTareas(estadoAnterior) // Revertir en fallo local
       }
     }
   }
 
-  // 🔧 Eliminar — online: DELETE real en Supabase. Offline: soft-delete local
-  // (columna `eliminada`) vía useTareas().eliminar(); el sync se encarga
-  // de reflejarlo cuando vuelva la conexión.
-  // 🆕 Ahora se puede llamar desde CUALQUIER columna, no solo Completadas.
+  // 🗑️ Borrado con Optimistic Update
   const borrarTarea = async (id: number) => {
     if (!confirm('¿Desea borrar de forma permanente esta tarea?')) return
     setError(null)
+    const estadoAnterior = [...tareas]
+
+    // Eliminación instantánea de la UI
+    setTareas(prev => prev.filter(t => t.id !== id))
+
     if (isOnline) {
       const r = await eliminarTarea(id)
-      if (r?.error) setError(r.error)
+      if (r?.error) {
+        setError(r.error)
+        setTareas(estadoAnterior) // Revertir si falla en backend
+      } else {
+        router.refresh()
+      }
     } else {
       try {
         await eliminarTareaLocal(String(id))
       } catch (e: any) {
         setError(e?.message ?? 'No se pudo eliminar la tarea sin conexión.')
+        setTareas(estadoAnterior)
       }
     }
   }
 
-  // 🔧 Crear tarea — online usa el Server Action existente (form action).
-  // Offline arma la fila localmente con un id temporal negativo y la guarda
-  // vía useTareas().guardar(), igual patrón que crearExpedienteCivilLocal.
   async function manejarSubmit(formData: FormData) {
     setError(null)
-
     if (isOnline) {
       const r = await crearTarea(formData)
-      if (r?.error) { setError(r.error) } else { setAbierto(false) }
+      if (r?.error) { 
+        setError(r.error) 
+      } else { 
+        setAbierto(false)
+        router.refresh()
+      }
       return
     }
 
@@ -204,16 +237,23 @@ export default function TableroTareasCliente({
       const expedienteIdRaw = formData.get('expediente_id') as string
       const asignadoRaw     = formData.get('asignado_a') as string
 
-      await guardarTareaLocal({
+      const nuevaTareaLocal: Tarea = {
         id: generarIdTemporal(),
         expediente_id: expedienteIdRaw ? Number(expedienteIdRaw) : null,
         asignado_a_usuario_id: asignadoRaw ? Number(asignadoRaw) : null,
         descripcion: formData.get('descripcion') as string,
         fecha_vencimiento: (formData.get('fecha_vencimiento') as string) || null,
+        completada: false,
+        estado_kanban: 'Por Hacer',
+      } as any
+
+      await guardarTareaLocal({
+        ...nuevaTareaLocal,
         completada: 0,
         eliminada: 0,
-        estado_kanban: 'Por Hacer',
-      })
+      } as any)
+
+      setTareas(prev => [nuevaTareaLocal, ...prev])
       setAbierto(false)
     } catch (e: any) {
       setError(e?.message ?? 'No se pudo guardar la tarea sin conexión.')
@@ -236,10 +276,8 @@ export default function TableroTareasCliente({
           .tar-tabs { overflow-x: auto; flex-wrap: nowrap !important; padding-bottom: 4px; }
           .tar-tabs::-webkit-scrollbar { height: 4px; }
           .tar-kanban { grid-template-columns: 1fr !important; }
-          /* 📱 En mobile cada columna es más baja porque quedan apiladas verticalmente */
           .tar-col-scroll { max-height: 46vh !important; }
         }
-        /* 🆕 Scrollbar delgada dentro de cada columna del kanban */
         .tar-col-scroll {
           scrollbar-width: thin;
           scrollbar-color: ${T.border} transparent;
@@ -259,6 +297,8 @@ export default function TableroTareasCliente({
         }
       `}</style>
 
+      <BannerOffline esOffline={!isOnline} />
+
       {/* ── ENCABEZADO ── */}
       <div className="tar-page-header" style={css.pageHeader}>
         <div>
@@ -266,21 +306,6 @@ export default function TableroTareasCliente({
           <p style={css.subtitulo}>
             <span style={css.dot} />
             Gestiona pendientes relacionados con expedientes
-            &nbsp;·&nbsp;
-            <span style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 4,
-              color: isOnline ? T.green : T.amber,
-            }}>
-              <span style={{
-                width: 5, height: 5,
-                borderRadius: '50%',
-                background: isOnline ? T.green : T.amber,
-                display: 'inline-block',
-              }} />
-              {syncing ? 'Sincronizando...' : isOnline ? 'En línea' : 'Sin conexión'}
-            </span>
           </p>
         </div>
         <button onClick={() => setAbierto(true)} className="tar-btn-primario" style={css.btnPrimario}>
@@ -345,7 +370,6 @@ export default function TableroTareasCliente({
               tarea={t}
               renderFecha={renderFecha}
               onCheck={() => cambiarEstado(t.id, 'En Progreso')}
-              checked={false}
               T={T}
               extra={
                 <button
@@ -373,7 +397,6 @@ export default function TableroTareasCliente({
               tarea={t}
               renderFecha={renderFecha}
               onCheck={() => cambiarEstado(t.id, 'Completada')}
-              checked={false}
               T={T}
               extra={
                 <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' as const }}>
@@ -408,8 +431,7 @@ export default function TableroTareasCliente({
               key={t.id}
               tarea={t}
               renderFecha={renderFecha}
-              onCheck={() => cambiarEstado(t.id, 'En Progreso')}
-              checked={true}
+              onCheck={() => cambiarEstado(t.id, 'Por Hacer')} 
               completada
               T={T}
               extra={
@@ -512,15 +534,12 @@ function Columna({ titulo, count, color, dot, T, children }: {
       border: `0.5px solid ${T.border}`,
       borderRadius: 12,
       padding: 16,
-      // 🆕 Altura fija (con tope) en vez de solo minHeight — así las 3 columnas
-      // siempre quedan parejas, sin importar cuántas tareas tenga cada una.
       height: 'calc(100vh - 300px)',
       minHeight: 380,
       maxHeight: 720,
       display: 'flex',
       flexDirection: 'column',
     }}>
-      {/* 🆕 Encabezado fijo — NO scrollea con la lista */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 16, flexShrink: 0 }}>
         <span style={{ color, fontSize: 14 }}>{dot}</span>
         <span style={{ fontSize: 12, fontWeight: 600, color: T.textMuted, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
@@ -530,7 +549,6 @@ function Columna({ titulo, count, color, dot, T, children }: {
           {count}
         </span>
       </div>
-      {/* 🆕 Contenedor con scroll interno — solo esto crece/scrollea */}
       <div className="tar-col-scroll" style={{
         display: 'flex',
         flexDirection: 'column',
@@ -538,7 +556,7 @@ function Columna({ titulo, count, color, dot, T, children }: {
         overflowY: 'auto',
         paddingRight: 4,
         flex: 1,
-        minHeight: 0, // 🔑 indispensable para que el overflow funcione dentro de un flex column
+        minHeight: 0,
       }}>
         {children}
         {count === 0 && (
@@ -551,15 +569,101 @@ function Columna({ titulo, count, color, dot, T, children }: {
   )
 }
 
-function TarjetaTarea({ tarea: t, renderFecha, onCheck, checked, completada, T, extra }: {
+function CirculoCheck({
+  estado,
+  onCheck,
+  T,
+}: {
+  estado: 'Por Hacer' | 'En Progreso' | 'Completada'
+  onCheck: () => void
+  T: typeof T_DARK
+}) {
+  let borderColor = T.border
+  let bg = 'transparent'
+  let icon = null
+
+  if (estado === 'En Progreso') {
+    borderColor = T.amber
+    bg = T.amberAlpha
+    icon = (
+      <span style={{
+        width: 8,
+        height: 8,
+        borderRadius: '50%',
+        background: T.amber,
+        display: 'block'
+      }} />
+    )
+  } else if (estado === 'Completada') {
+    borderColor = T.green
+    bg = T.green
+    icon = (
+      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="20 6 9 17 4 12" />
+      </svg>
+    )
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation()
+        onCheck()
+      }}
+      style={{
+        width: 20,
+        height: 20,
+        borderRadius: '50%',
+        border: `2px solid ${borderColor}`,
+        background: bg,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        cursor: 'pointer',
+        flexShrink: 0,
+        padding: 0,
+        marginTop: 2,
+        transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+        outline: 'none',
+      }}
+      title={
+        estado === 'Por Hacer' ? 'Mover a "En progreso"' :
+        estado === 'En Progreso' ? 'Mover a "Completadas"' :
+        'Mover a "Por hacer"'
+      }
+      onMouseEnter={(e) => {
+        e.currentTarget.style.transform = 'scale(1.15)'
+        if (estado === 'Por Hacer') {
+          e.currentTarget.style.borderColor = T.accent
+        }
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.transform = 'scale(1)'
+        if (estado === 'Por Hacer') {
+          e.currentTarget.style.borderColor = T.border
+        }
+      }}
+    >
+      {icon}
+    </button>
+  )
+}
+
+function TarjetaTarea({ tarea: t, renderFecha, onCheck, completada, T, extra }: {
   tarea: Tarea
   renderFecha: (f: string | null) => React.ReactNode
   onCheck: () => void
-  checked: boolean
   completada?: boolean
   T: typeof T_DARK
   extra?: React.ReactNode
 }) {
+  const estadoReal = (t.estado_kanban === 'Completada' || t.completada)
+    ? 'Completada'
+    : t.estado_kanban === 'En Progreso'
+    ? 'En Progreso'
+    : 'Por Hacer'
+
   return (
     <div style={{
       background: T.surfaceLow,
@@ -567,15 +671,11 @@ function TarjetaTarea({ tarea: t, renderFecha, onCheck, checked, completada, T, 
       borderRadius: 8,
       padding: '12px 14px',
       opacity: completada ? 0.7 : 1,
-      flexShrink: 0, // 🆕 evita que las tarjetas se compriman dentro del contenedor con scroll
+      flexShrink: 0,
     }}>
       <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-        <input
-          type="checkbox"
-          checked={checked}
-          onChange={onCheck}
-          style={{ marginTop: 3, cursor: 'pointer', accentColor: T.accent, flexShrink: 0 }}
-        />
+        <CirculoCheck estado={estadoReal} onCheck={onCheck} T={T} />
+        
         <span style={{
           color: completada ? T.textMuted : T.textPrimary,
           fontSize: 13,

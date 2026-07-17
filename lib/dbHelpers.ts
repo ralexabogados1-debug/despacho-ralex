@@ -301,11 +301,20 @@ export function generarIdTemporal(): number {
   return -(Date.now() * 1000 + contadorTemp)
 }
 
-// Busca el id numérico (tabla usuarios) del usuario actual por email,
-// ya que la sesión local (authLocal) no guarda el id de Postgres.
-export async function obtenerUsuarioLocalPorEmail(email: string): Promise<{ id: number } | null> {
-  const [row] = await query<{ id: number }>(
-    `SELECT id FROM usuarios WHERE email = ?`,
+// Busca los datos del usuario actual (tabla usuarios) por email, ya que la
+// sesión local (authLocal) no guarda el id de Postgres. Se trae también
+// nombre_completo y rol porque varias pantallas (ej. asignación automática
+// de abogado responsable al crear un expediente) necesitan mostrarlos sin
+// tener que hacer una segunda consulta.
+export type UsuarioLocal = {
+  id: number
+  nombre_completo: string
+  rol: string
+}
+
+export async function obtenerUsuarioLocalPorEmail(email: string): Promise<UsuarioLocal | null> {
+  const [row] = await query<UsuarioLocal>(
+    `SELECT id, nombre_completo, rol FROM usuarios WHERE email = ?`,
     [email]
   )
   return row ?? null
@@ -313,8 +322,8 @@ export async function obtenerUsuarioLocalPorEmail(email: string): Promise<{ id: 
 
 // ─────────────────────────────────────────────────────────────────────────
 // 👤 Datos de "Mi Perfil": expedientes asignados (cualquier materia, vía
-// expediente_abogados), conteo de tareas activas, conteo de eventos y
-// actividad reciente — todo resuelto contra SQLite local.
+// expediente_abogados), conteo de tareas activas y conteo de eventos —
+// todo resuelto contra SQLite local.
 // ─────────────────────────────────────────────────────────────────────────
 export async function queryPerfilLocal(usuarioId: number) {
   const db = await getDb();
@@ -354,12 +363,7 @@ export async function queryPerfilLocal(usuarioId: number) {
   )
 
   const [eventosRow] = await query<{ n: number }>(
-    `SELECT COUNT(*) as n FROM eventos_calendario WHERE usuario_id = ?`,
-    [usuarioId]
-  )
-
-  const actividad = await query<any>(
-    `SELECT * FROM actividad_reciente WHERE usuario_id = ? ORDER BY created_at DESC LIMIT 3`,
+    `SELECT COUNT(*) as n FROM eventos WHERE usuario_id = ?`,
     [usuarioId]
   )
 
@@ -367,7 +371,7 @@ export async function queryPerfilLocal(usuarioId: number) {
     expedientes,
     conteoTareas: tareasRow?.n ?? 0,
     conteoEventos: eventosRow?.n ?? 0,
-    actividad,
+    actividad: [], // ← para compatibilidad con el componente de perfil
   }
 }
 
@@ -675,23 +679,6 @@ export async function crearExpedienteCivilLocal(
 // ─────────────────────────────────────────────────────────────────────────
 // ✍️ Creación offline de un expediente Amparo completo:
 // clientes → expedientes → expedientes_amparo → expediente_abogados (opcional)
-//
-// 🐛 Reemplaza el flujo anterior en cliente.tsx (ClienteAmparos.manejarSubmit),
-// que llamaba dos veces al mismo guardar() de useExpedientes('expedientes_amparo')
-// -- una con { id, numero_expediente, ... } pensado para "expedientes", pero
-// como el hook estaba pegado a la tabla "expedientes_amparo" (que NO tiene
-// columna "id", solo "expediente_id"), tronaba con:
-// "table expedientes_amparo has no column named id".
-// Esta función, igual que crearExpedienteCivilLocal(), escribe cada objeto
-// en su tabla correcta: clientes(id) → expedientes(id) → expedientes_amparo(expediente_id).
-//
-// ✅ FIX (08/jul/2026): materia_id ya NO se guarda como null. Antes, el
-// expediente quedaba con materia_id = NULL en Supabase, y como page.tsx de
-// Amparo filtra con `.eq('materia_id', materiaAmparo.id)`, en SQL un NULL
-// nunca es igual a nada (ni a otro NULL) — por eso el expediente se creaba
-// bien, sincronizaba bien, pero JAMÁS aparecía en la lista una vez que la
-// app recargaba en modo online. Se confirmó en Supabase que el id real de
-// la materia "Amparo" es 4 (tabla materias).
 // ─────────────────────────────────────────────────────────────────────────
 const MATERIA_ID_AMPARO = 4
 
@@ -825,13 +812,6 @@ export async function crearExpedienteAmparoLocal(
 
   return { expedienteId: idExpedienteTemp }
 }
-// ─────────────────────────────────────────────────────────────────────────
-// 🆕 AGREGAR AL FINAL DE lib/dbHelpers.ts
-// Lectura offline de UN expediente (detalle) + borrado local con cola de sync.
-// Sigue el mismo patrón que queryExpedientesPenalesLocal/CivilesLocal/AmparoLocal
-// (JOINs manuales que replican el shape anidado del select() de Supabase),
-// pero para un solo id en vez de la lista completa.
-// ─────────────────────────────────────────────────────────────────────────
 
 // ── Amparo ──────────────────────────────────────────────────────────────
 export async function queryDetalleAmparoLocal(id: number): Promise<any | null> {
@@ -962,7 +942,6 @@ export async function queryDetallePenalLocal(id: number): Promise<any | null> {
   expStmt.free();
   if (!exp) return null;
 
-  // Juzgado del juez asignado (mismo criterio que usa el select anidado de Supabase: jueces → juzgados)
   let juzgado: any = null;
   if (exp.juez_juzgado_id) {
     const jzStmt = db.prepare(`SELECT nombre, ciudad FROM juzgados WHERE id = ?`);
@@ -1017,8 +996,6 @@ export async function queryDetallePenalLocal(id: number): Promise<any | null> {
 }
 
 // ── Borrado de un expediente + hijos, en cache local ───────────────────
-// Postgres hace ON DELETE CASCADE en el servidor; sql.js no tiene ese cascade
-// activado, así que hay que replicarlo a mano aquí.
 async function limpiarExpedienteDeCacheLocal(id: number) {
   await run(`DELETE FROM expedientes_penales WHERE expediente_id = ?`, [id]);
   await run(`DELETE FROM expedientes_civiles WHERE expediente_id = ?`, [id]);
@@ -1027,7 +1004,6 @@ async function limpiarExpedienteDeCacheLocal(id: number) {
   await run(`DELETE FROM expedientes WHERE id = ?`, [id]);
 }
 
-// Se borró OFFLINE: limpia el cache y encola el delete para cuando vuelva la red.
 export async function eliminarExpedienteLocal(id: number) {
   await limpiarExpedienteDeCacheLocal(id);
   await run(
@@ -1037,9 +1013,272 @@ export async function eliminarExpedienteLocal(id: number) {
   );
 }
 
-// Se borró ONLINE (ya se hizo el delete en Supabase): solo limpia el cache local,
-// sin encolar nada, para que el expediente no "reaparezca" si se pierde la
-// conexión antes del próximo syncConSupabase().
 export async function limpiarExpedienteCacheTrasBorrarOnline(id: number) {
   await limpiarExpedienteDeCacheLocal(id);
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// 👥 Colaboradores de un expediente (expediente_abogados)
+// Se identifican por (expediente_id, usuario_id), NUNCA por el "id" local
+// autoincrement — porque ese id puede no existir todavía en Supabase si el
+// registro no ha sincronizado, y porque expediente_id puede ser un ID
+// temporal negativo (ver generarIdTemporal) que se reescribe después vía
+// reconciliarId() en sync.ts, el cual ya sabe reescribir expediente_id en
+// cualquier fila pendiente de expediente_abogados.
+// ─────────────────────────────────────────────────────────────────────────
+
+export async function queryColaboradoresLocal(expedienteId: number): Promise<any[]> {
+  const db = await getDb();
+  const stmt = db.prepare(`
+    SELECT ea.id, ea.usuario_id, ea.es_responsable, u.nombre_completo
+    FROM expediente_abogados ea
+    JOIN usuarios u ON u.id = ea.usuario_id
+    WHERE ea.expediente_id = ?
+    ORDER BY ea.es_responsable DESC, u.nombre_completo ASC
+  `);
+  stmt.bind([expedienteId]);
+  const rows: any[] = [];
+  while (stmt.step()) {
+    const r = stmt.getAsObject();
+    rows.push({ ...r, es_responsable: !!r.es_responsable });
+  }
+  stmt.free();
+  return rows;
+}
+
+export async function agregarColaboradorLocal(
+  expedienteId: number,
+  usuarioId: number,
+  esResponsable = false
+) {
+  const existentes = await query(
+    `SELECT id FROM expediente_abogados WHERE expediente_id = ? AND usuario_id = ?`,
+    [expedienteId, usuarioId]
+  );
+  if (existentes.length > 0) return; // ya es colaborador, no duplicar
+
+  const ahora = Date.now();
+  await run(
+    `INSERT INTO expediente_abogados (expediente_id, usuario_id, es_responsable, sync_status, updated_at)
+     VALUES (?, ?, ?, 'pending', ?)`,
+    [expedienteId, usuarioId, esResponsable ? 1 : 0, ahora]
+  );
+  await run(
+    `INSERT INTO sync_queue (tabla, operacion, payload, created_at) VALUES (?, 'upsert', ?, ?)`,
+    [
+      'expediente_abogados',
+      JSON.stringify({ expediente_id: expedienteId, usuario_id: usuarioId, es_responsable: esResponsable }),
+      ahora,
+    ]
+  );
+}
+
+export async function eliminarColaboradorLocal(expedienteId: number, usuarioId: number) {
+  const ahora = Date.now();
+  await run(
+    `DELETE FROM expediente_abogados WHERE expediente_id = ? AND usuario_id = ?`,
+    [expedienteId, usuarioId]
+  );
+  await run(
+    `INSERT INTO sync_queue (tabla, operacion, payload, created_at) VALUES (?, 'delete', ?, ?)`,
+    ['expediente_abogados', JSON.stringify({ expediente_id: expedienteId, usuario_id: usuarioId }), ahora]
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// ✏️ Edición offline de expedientes (Civil / Amparo / Penal)
+// Actualiza SQLite local y encola el cambio en sync_queue como 'upsert'.
+// ─────────────────────────────────────────────────────────────────────────
+
+type DatosExpedienteBaseEditado = {
+  numero_expediente: string
+  fecha_inicio: string | null
+  descripcion: string | null
+}
+
+// ── Civil / Familiar ──
+type DatosCivilEditado = DatosExpedienteBaseEditado & {
+  tipo_juicio: string | null
+  caracter_cliente: string | null
+  contraparte: string | null
+  ciudad: string | null
+}
+
+export async function actualizarExpedienteCivilLocal(
+  expedienteId: number,
+  datos: DatosCivilEditado
+) {
+  const ahora = Date.now()
+
+  await run(
+    `UPDATE expedientes SET
+      numero_expediente = ?, tipo_juicio = ?, caracter_cliente = ?, contraparte = ?,
+      ciudad = ?, fecha_inicio = ?, descripcion = ?,
+      sync_status = 'pending', updated_at = ?
+     WHERE id = ?`,
+    [
+      datos.numero_expediente, datos.tipo_juicio, datos.caracter_cliente, datos.contraparte,
+      datos.ciudad, datos.fecha_inicio, datos.descripcion,
+      ahora, expedienteId,
+    ]
+  )
+  await run(
+    `INSERT INTO sync_queue (tabla, operacion, payload, created_at) VALUES (?, 'upsert', ?, ?)`,
+    ['expedientes', JSON.stringify({ id: expedienteId, ...datos }), ahora]
+  )
+}
+
+// ── Amparo ──
+type DatosAmparoEditado = {
+  tipo_amparo: string | null
+  tercero_interesado: string | null
+  autoridad_responsable: string | null
+  acto_reclamado: string | null
+}
+
+export async function actualizarExpedienteAmparoLocal(
+  expedienteId: number,
+  datosExpediente: DatosExpedienteBaseEditado,
+  datosAmparo: DatosAmparoEditado
+) {
+  const ahora = Date.now()
+
+  await run(
+    `UPDATE expedientes SET
+      numero_expediente = ?, fecha_inicio = ?, descripcion = ?,
+      sync_status = 'pending', updated_at = ?
+     WHERE id = ?`,
+    [
+      datosExpediente.numero_expediente, datosExpediente.fecha_inicio, datosExpediente.descripcion,
+      ahora, expedienteId,
+    ]
+  )
+  await run(
+    `INSERT INTO sync_queue (tabla, operacion, payload, created_at) VALUES (?, 'upsert', ?, ?)`,
+    ['expedientes', JSON.stringify({ id: expedienteId, ...datosExpediente }), ahora]
+  )
+
+  await run(
+    `UPDATE expedientes_amparo SET
+      tipo_amparo = ?, tercero_interesado = ?, autoridad_responsable = ?, acto_reclamado = ?,
+      sync_status = 'pending', updated_at = ?
+     WHERE expediente_id = ?`,
+    [
+      datosAmparo.tipo_amparo, datosAmparo.tercero_interesado,
+      datosAmparo.autoridad_responsable, datosAmparo.acto_reclamado,
+      ahora, expedienteId,
+    ]
+  )
+  await run(
+    `INSERT INTO sync_queue (tabla, operacion, payload, created_at) VALUES (?, 'upsert', ?, ?)`,
+    ['expedientes_amparo', JSON.stringify({ expediente_id: expedienteId, ...datosAmparo }), ahora]
+  )
+}
+
+// ── Penal ──
+type DatosPenalBaseEditado = DatosExpedienteBaseEditado & {
+  caracter_cliente: string | null
+  contraparte: string | null
+}
+
+type DatosPenalEspecificoEditado = {
+  numero_carpeta_investigacion: string | null
+  delito: string | null
+  estadio_procesal: string | null
+  rol_abogado: string | null
+}
+
+export async function actualizarExpedientePenalLocal(
+  expedienteId: number,
+  datosExpediente: DatosPenalBaseEditado,
+  datosPenal: DatosPenalEspecificoEditado
+) {
+  const ahora = Date.now()
+
+  await run(
+    `UPDATE expedientes SET
+      numero_expediente = ?, caracter_cliente = ?, contraparte = ?,
+      fecha_inicio = ?, descripcion = ?,
+      sync_status = 'pending', updated_at = ?
+     WHERE id = ?`,
+    [
+      datosExpediente.numero_expediente, datosExpediente.caracter_cliente, datosExpediente.contraparte,
+      datosExpediente.fecha_inicio, datosExpediente.descripcion,
+      ahora, expedienteId,
+    ]
+  )
+  await run(
+    `INSERT INTO sync_queue (tabla, operacion, payload, created_at) VALUES (?, 'upsert', ?, ?)`,
+    ['expedientes', JSON.stringify({ id: expedienteId, ...datosExpediente }), ahora]
+  )
+
+  await run(
+    `UPDATE expedientes_penales SET
+      numero_carpeta_investigacion = ?, delito = ?, estadio_procesal = ?, rol_abogado = ?,
+      sync_status = 'pending', updated_at = ?
+     WHERE expediente_id = ?`,
+    [
+      datosPenal.numero_carpeta_investigacion, datosPenal.delito,
+      datosPenal.estadio_procesal, datosPenal.rol_abogado,
+      ahora, expedienteId,
+    ]
+  )
+  await run(
+    `INSERT INTO sync_queue (tabla, operacion, payload, created_at) VALUES (?, 'upsert', ?, ?)`,
+    ['expedientes_penales', JSON.stringify({ expediente_id: expedienteId, ...datosPenal }), ahora]
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// ✅ Tareas offline: crear y marcar completada/pendiente
+// ─────────────────────────────────────────────────────────────────────────
+
+export async function crearTareaLocal(
+  expedienteId: number,
+  descripcion: string,
+  fechaVencimiento: string | null,
+  asignadoAUsuarioId: number | null = null
+): Promise<{ tareaId: number }> {
+  const ahora = Date.now()
+  const idTareaTemp = generarIdTemporal()
+
+  const tarea = {
+    id: idTareaTemp,
+    expediente_id: expedienteId,
+    asignado_a_usuario_id: asignadoAUsuarioId,
+    descripcion,
+    fecha_vencimiento: fechaVencimiento,
+    completada: 0,
+    eliminada: 0,
+  }
+
+  await run(
+    `INSERT INTO tareas (
+      id, expediente_id, asignado_a_usuario_id, descripcion,
+      fecha_vencimiento, completada, eliminada, sync_status, updated_at
+    ) VALUES (?,?,?,?,?,?,?, 'pending', ?)`,
+    [
+      tarea.id, tarea.expediente_id, tarea.asignado_a_usuario_id, tarea.descripcion,
+      tarea.fecha_vencimiento, tarea.completada, tarea.eliminada, ahora,
+    ]
+  )
+  await run(
+    `INSERT INTO sync_queue (tabla, operacion, payload, created_at) VALUES (?, 'upsert', ?, ?)`,
+    ['tareas', JSON.stringify(tarea), ahora]
+  )
+
+  return { tareaId: idTareaTemp }
+}
+
+export async function toggleTareaLocal(tareaId: number, completadaNueva: boolean) {
+  const ahora = Date.now()
+
+  await run(
+    `UPDATE tareas SET completada = ?, sync_status = 'pending', updated_at = ? WHERE id = ?`,
+    [completadaNueva ? 1 : 0, ahora, tareaId]
+  )
+  await run(
+    `INSERT INTO sync_queue (tabla, operacion, payload, created_at) VALUES (?, 'upsert', ?, ?)`,
+    ['tareas', JSON.stringify({ id: tareaId, completada: completadaNueva }), ahora]
+  )
 }

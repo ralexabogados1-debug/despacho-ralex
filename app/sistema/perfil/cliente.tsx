@@ -2,11 +2,11 @@
 
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useTema } from '@/app/sistema/layout' // Ajusta la ruta si es necesario
-import { actualizarPerfilUsuario } from './actions' // Ajusta la ruta si es necesario
+import { useTema } from '@/app/sistema/layout'
+import { actualizarPerfilUsuario } from './actions'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 🎨 TOKENS OSCUROS
+// 🎨 TOKENS (sin cambios)
 // ─────────────────────────────────────────────────────────────────────────────
 const T_DARK = {
   surface:      '#0b1220',
@@ -28,9 +28,6 @@ const T_DARK = {
   surfaceHover: '#0f1828',
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 🎨 TOKENS CLAROS
-// ─────────────────────────────────────────────────────────────────────────────
 const T_LIGHT = {
   surface:      '#ffffff',
   border:       'rgba(0,0,0,0.08)',
@@ -56,10 +53,9 @@ interface PerfilProps {
   expedientes: any[]
   conteoTareas: number
   conteoEventos: number
-  actividad: any[]
 }
 
-export default function PerfilUsuarioCliente({ usuario, expedientes, conteoTareas, conteoEventos, actividad }: PerfilProps) {
+export default function PerfilUsuarioCliente({ usuario, expedientes, conteoTareas, conteoEventos }: PerfilProps) {
   const { oscuro } = useTema()
   const T = oscuro ? T_DARK : T_LIGHT
   const router = useRouter()
@@ -84,59 +80,119 @@ export default function PerfilUsuarioCliente({ usuario, expedientes, conteoTarea
   return (
     <div style={styles.root}>
       <style>{`
-        .perfil-grid { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 20px; align-items: start; }
-        .kpi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-        .t-fila { display: grid; grid-template-columns: minmax(0,1.2fr) minmax(0,1.2fr) 100px 100px; padding: 11px 18px; border-bottom: 0.5px solid ${T.border}; align-items: center; gap: 12px; }
+        .perfil-grid {
+          display: grid;
+          grid-template-columns: 280px minmax(0, 1fr);
+          gap: 20px;
+          align-items: start;
+        }
+        .kpi-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+          gap: 12px;
+        }
+        .t-contenedor {
+          width: 100%;
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
+        }
+        .t-min-ancho {
+          min-width: 500px;
+        }
+        .t-fila {
+          display: grid;
+          grid-template-columns: 1.2fr 1.2fr 100px 100px;
+          padding: 11px 18px;
+          border-bottom: 0.5px solid ${T.border};
+          align-items: center;
+          gap: 12px;
+        }
         .t-col-hide { display: block; }
-        .p-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
-        .p-header-btns { display: flex; gap: 10px; flex-wrap: wrap; }
+
+        .p-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 10px 16px;
+          margin-bottom: 8px;
+        }
+        .p-header-left {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+        .title-row {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          margin-bottom: 8px;
+        }
+
+        /* ─── CONTENEDOR DE ACCIONES AL PIE DE PÁGINA ─── */
+        .p-footer {
+          display: flex;
+          justify-content: flex-end;
+          gap: 12px;
+          margin-top: 12px;
+          padding-top: 20px;
+          border-top: 0.5px solid ${T.border};
+        }
+
         @media (max-width: 900px) {
           .perfil-grid { grid-template-columns: 1fr; }
         }
+
         @media (max-width: 640px) {
-          .t-fila { grid-template-columns: minmax(0,1fr) 80px; padding: 10px 12px; }
+          .p-footer {
+            flex-direction: column;
+            gap: 10px;
+          }
+          .p-footer button {
+            width: 100%;
+            padding: 10px 16px; /* Altura cómoda para tocar con el dedo */
+          }
+          .t-fila {
+            grid-template-columns: 1fr 100px;
+            padding: 10px 14px;
+          }
           .t-col-hide { display: none; }
-          .p-header { flex-direction: column; align-items: flex-start; }
-          .kpi-grid { gap: 8px; }
+          .t-min-ancho { min-width: 0; }
         }
+
         @media (max-width: 420px) {
-          .kpi-grid { grid-template-columns: 1fr 1fr; }
+          .kpi-grid { 
+            grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); 
+          }
         }
       `}</style>
 
-      {/* Header */}
+      {/* ─── HEADER ─── */}
       <div className="p-header">
-        <span style={{ fontSize: 12, color: T.textMuted }}>
-          Mi perfil &rsaquo; <span style={{ color: T.textPrimary }}>{usuario.nombre_completo}</span>
-        </span>
-        <div className="p-header-btns">
-          <button style={styles.btnOutline}>
-            Desactivar
-          </button>
-          <button style={styles.btnPrimario} onClick={abrirEdicion}>
-            Editar perfil
-          </button>
+        <div className="p-header-left">
+          <span style={{ fontSize: 12, color: T.textMuted }}>
+            Mi perfil &rsaquo; <span style={{ color: T.textPrimary }}>{usuario.nombre_completo}</span>
+          </span>
         </div>
       </div>
 
-      {/* Título */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+      {/* ─── TÍTULO Y VOLVER ─── */}
+      <div className="title-row">
         <button onClick={() => router.back()} aria-label="Volver" style={styles.btnBack}>←</button>
         <h1 style={styles.pageTitle}>Perfil de usuario</h1>
       </div>
 
-      {/* Grid principal */}
+      {/* ─── GRID PRINCIPAL ─── */}
       <div className="perfil-grid">
 
-        {/* Col izquierda */}
+        {/* Columna izquierda */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
           <div style={styles.cardCenter}>
-            <div style={styles.avatarLarge}>
-              {iniciales}
-            </div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: T.textPrimary, marginBottom: 4 }}>{usuario.nombre_completo}</div>
-            <div style={{ fontSize: 12, color: T.textMuted, marginBottom: 14 }}>{usuario.email}</div>
+            <div style={styles.avatarLarge}>{iniciales}</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: T.textPrimary, marginBottom: 4, overflowWrap: 'anywhere' }}>{usuario.nombre_completo}</div>
+            <div style={{ fontSize: 12, color: T.textMuted, marginBottom: 14, overflowWrap: 'anywhere' }}>{usuario.email}</div>
             <MateriaChip nombre={usuario.rol ?? 'Abogado'} T={T} />
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 14, fontSize: 12, color: T.textMuted }}>
               <span style={{ width: 7, height: 7, borderRadius: '50%', background: usuario.activo ? T.green : T.red, display: 'inline-block' }} />
@@ -154,13 +210,14 @@ export default function PerfilUsuarioCliente({ usuario, expedientes, conteoTarea
             ].map(([label, val]) => (
               <div key={label} style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: '10px 0', borderBottom: `0.5px solid ${T.border}` }}>
                 <span style={{ fontSize: 11, fontWeight: 500, color: T.textMuted, letterSpacing: '0.05em', textTransform: 'uppercase' }}>{label}</span>
-                <span style={{ fontSize: 13, fontWeight: 500, color: T.textPrimary }}>{val}</span>
+                <span style={{ fontSize: 13, fontWeight: 500, color: T.textPrimary, overflowWrap: 'anywhere' }}>{val}</span>
               </div>
             ))}
           </div>
+
         </div>
 
-        {/* Col derecha */}
+        {/* Columna derecha */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
           <div className="kpi-grid">
@@ -178,67 +235,67 @@ export default function PerfilUsuarioCliente({ usuario, expedientes, conteoTarea
 
           <div style={styles.card}>
             <p style={{ fontSize: 13, fontWeight: 600, color: T.textPrimary, margin: '0 0 14px' }}>Expedientes asignados</p>
+            
             <div style={{ border: `0.5px solid ${T.border}`, borderRadius: 10, overflow: 'hidden' }}>
-              <div className="t-fila" style={{ fontSize: 11, fontWeight: 500, color: T.textFaint, letterSpacing: '0.06em', textTransform: 'uppercase', background: T.surfaceHover }}>
-                <span>No. Expediente</span>
-                <span className="t-col-hide">Quejoso / Asunto</span>
-                <span className="t-col-hide">Materia</span>
-                <span style={{ textAlign: 'right' }}>Estado</span>
-              </div>
-              {expedientes.length === 0 ? (
-                <div style={{ padding: '28px 18px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, fontSize: 13, color: T.textMuted, textAlign: 'center' }}>
-                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" style={{ color: T.textFaint }}>
-                    <path d="M3 7a2 2 0 0 1 2-2h3.586a1 1 0 0 1 .707.293L11 7h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/>
-                  </svg>
-                  No hay expedientes asignados actualmente.
-                </div>
-              ) : expedientes.map((exp: any) => (
-                <div key={exp.id} className="t-fila">
-                  <span style={{ fontWeight: 600, fontSize: 13, color: T.textPrimary }}>{exp.numero_expediente}</span>
-                  <span className="t-col-hide" style={{ fontSize: 13, color: T.textMuted }}>{exp.quejoso ?? '—'}</span>
-                  <span className="t-col-hide"><MateriaChip nombre={exp.tipo_amparo ?? exp.materia ?? 'Amparo'} T={T} /></span>
-                  <span style={{ textAlign: 'right' }}><EstadoChip estado={exp.estado_tramite ?? exp.estado ?? 'En trámite'} T={T} /></span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div style={styles.card}>
-            <p style={{ fontSize: 13, fontWeight: 600, color: T.textPrimary, margin: '0 0 14px' }}>Actividad reciente</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              {actividad.length === 0 ? (
-                <span style={{ fontSize: 13, color: T.textMuted }}>Sin registro de actividades recientes.</span>
-              ) : actividad.map((act: any) => (
-                <div key={act.id} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: T.accent, flexShrink: 0, marginTop: 5, display: 'inline-block' }} />
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 500, color: T.textPrimary }}>{act.descripcion ?? 'Realizó cambios en el sistema'}</div>
-                    <div style={{ fontSize: 12, color: T.textFaint, marginTop: 2 }}>{formatearFecha(act.created_at)}</div>
+              <div className="t-contenedor">
+                <div className="t-min-ancho">
+                  <div className="t-fila" style={{ fontSize: 11, fontWeight: 500, color: T.textFaint, letterSpacing: '0.06em', textTransform: 'uppercase', background: T.surfaceHover }}>
+                    <span>No. Expediente</span>
+                    <span className="t-col-hide">Quejoso / Asunto</span>
+                    <span className="t-col-hide">Materia</span>
+                    <span style={{ textAlign: 'right' }}>Estado</span>
                   </div>
+                  {expedientes.length === 0 ? (
+                    <div style={{ padding: '28px 18px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, fontSize: 13, color: T.textMuted, textAlign: 'center' }}>
+                      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" style={{ color: T.textFaint }}>
+                        <path d="M3 7a2 2 0 0 1 2-2h3.586a1 1 0 0 1 .707.293L11 7h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/>
+                      </svg>
+                      No hay expedientes asignados actualmente.
+                    </div>
+                  ) : expedientes.map((exp: any) => (
+                    <div key={exp.id} className="t-fila">
+                      <span style={{ fontWeight: 600, fontSize: 13, color: T.textPrimary, overflowWrap: 'anywhere' }}>{exp.numero_expediente}</span>
+                      <span className="t-col-hide" style={{ fontSize: 13, color: T.textMuted }}>{exp.quejoso ?? '—'}</span>
+                      <span className="t-col-hide"><MateriaChip nombre={exp.tipo_amparo ?? exp.materia ?? 'Amparo'} T={T} /></span>
+                      <span style={{ textAlign: 'right' }}><EstadoChip estado={exp.estado_tramite ?? exp.estado ?? 'En trámite'} T={T} /></span>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              </div>
             </div>
+            
           </div>
 
         </div>
       </div>
 
-      {/* ── MODAL: EDITAR PERFIL ── */}
+      {/* ─── PIE DE PÁGINA (Acciones globales) ─── */}
+      <div className="p-footer">
+        <button style={styles.btnOutline}>
+          Desactivar cuenta
+        </button>
+        <button style={styles.btnPrimario} onClick={abrirEdicion}>
+          Editar perfil
+        </button>
+      </div>
+
+      {/* ─── MODAL EDITAR PERFIL ─── */}
       {modalAbierto && (
         <div
           style={{
             position: 'fixed', inset: 0, background: oscuro ? 'rgba(3,7,18,0.75)' : 'rgba(0,0,0,0.4)',
             backdropFilter: 'blur(4px)', display: 'flex',
-            alignItems: 'flex-start', justifyContent: 'center',
-            padding: '24px 16px', overflowY: 'auto', zIndex: 100,
+            alignItems: 'center', justifyContent: 'center',
+            padding: '16px', overflowY: 'auto', zIndex: 100,
           }}
           onClick={() => setModalAbierto(false)}
         >
           <div
             style={{
               background: T.surface, border: `0.5px solid ${T.border}`,
-              borderRadius: 16, padding: 'clamp(20px, 5vw, 28px)',
-              width: '100%', maxWidth: 440, marginTop: 20,
+              borderRadius: 16, padding: '24px 20px',
+              width: '100%', maxWidth: 440,
+              maxHeight: '90vh', overflowY: 'auto',
             }}
             onClick={e => e.stopPropagation()}
           >
@@ -261,7 +318,6 @@ export default function PerfilUsuarioCliente({ usuario, expedientes, conteoTarea
               if (res?.error) setErrorForm(res.error)
               else setModalAbierto(false)
             }}>
-
               <div style={{ marginBottom: 14 }}>
                 <label style={styles.label}>Nombre completo *</label>
                 <input
@@ -281,13 +337,7 @@ export default function PerfilUsuarioCliente({ usuario, expedientes, conteoTarea
                 />
               </div>
 
-              {/*
-                Cuando agreguemos telefono/direccion a la tabla "usuarios",
-                aquí se insertan los inputs correspondientes y se envían
-                a actualizarPerfilUsuario junto con nombre_completo.
-              */}
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
                 <button type="button" onClick={() => setModalAbierto(false)}
                   style={{ background: 'transparent', color: T.textMuted, border: 'none', cursor: 'pointer', fontSize: 13, padding: '10px 8px' }}>
                   Cancelar
@@ -304,7 +354,7 @@ export default function PerfilUsuarioCliente({ usuario, expedientes, conteoTarea
   )
 }
 
-// ─── Sub-componentes con tokens ────────────────────────────────────────────
+// ─── Sub-componentes (sin cambios) ────────────────────────────────────────
 function MateriaChip({ nombre, T }: { nombre: string; T: typeof T_DARK }) {
   const map: Record<string, { bg: string; color: string }> = {
     Civil:    { bg: T.accentAlpha, color: T.textAccent },
@@ -323,12 +373,12 @@ function EstadoChip({ estado, T }: { estado: string; T: typeof T_DARK }) {
   return <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 20, display: 'inline-block', background: esActivo ? T.greenAlpha : T.goldAlpha, color: esActivo ? T.green : T.gold }}>{estado}</span>
 }
 
-// ─── Función generadora de estilos dinámica ────────────────────────────────
+// ─── Estilos dinámicos ────────────────────────────────────────────────────
 function getStyles(T: typeof T_DARK, oscuro: boolean) {
   return {
     root: {
       width: '100%',
-      padding: 'clamp(20px, 4vw, 40px) clamp(16px, 4vw, 40px)',
+      padding: 'clamp(16px, 3vw, 40px) clamp(12px, 3vw, 40px)',
       boxSizing: 'border-box' as const,
       display: 'flex',
       flexDirection: 'column' as const,
@@ -345,23 +395,31 @@ function getStyles(T: typeof T_DARK, oscuro: boolean) {
       background: T.accent,
       border: 'none',
       borderRadius: 8,
-      padding: '7px 16px',
+      padding: '8px 16px',
       fontSize: 12,
       fontWeight: 600,
       color: '#fff',
       cursor: 'pointer',
       fontFamily: 'inherit',
+      transition: 'background 0.15s',
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
     } as React.CSSProperties,
     btnOutline: {
       background: 'transparent',
       border: `0.5px solid ${T.border}`,
       borderRadius: 8,
-      padding: '7px 16px',
+      padding: '8px 16px',
       fontSize: 12,
       fontWeight: 500,
       color: T.textMuted,
       cursor: 'pointer',
       fontFamily: 'inherit',
+      transition: 'background 0.15s, border-color 0.15s',
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
     } as React.CSSProperties,
     btnBack: {
       background: T.surface,
@@ -377,6 +435,7 @@ function getStyles(T: typeof T_DARK, oscuro: boolean) {
       color: T.textPrimary,
       cursor: 'pointer',
       fontFamily: 'inherit',
+      flexShrink: 0,
     } as React.CSSProperties,
     card: {
       background: T.surface,

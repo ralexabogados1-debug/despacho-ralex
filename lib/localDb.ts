@@ -2,20 +2,35 @@ import initSqlJs, { Database } from 'sql.js';
 
 let db: Database | null = null;
 const STORAGE_KEY = 'juridico-sqlite';
+const VERSION_KEY = 'juridico-sqlite-version';
+
+// 🆕 Súbelo cada vez que necesites forzar una purga completa del cache
+// local en todos los dispositivos (ej. al activar RLS de expedientes,
+// para que cada abogado re-sincronice solo lo que le corresponde).
+const VERSION_ACTUAL = 2;
 
 export async function getDb(): Promise<Database> {
   if (db) return db;
 
   const SQL = await initSqlJs({ locateFile: () => '/sql-wasm.wasm' });
 
-  const saved = localStorage.getItem(STORAGE_KEY);
+  const versionGuardada = Number(localStorage.getItem(VERSION_KEY) ?? '0');
+  const versionCoincide = versionGuardada === VERSION_ACTUAL;
+
+  const saved = versionCoincide ? localStorage.getItem(STORAGE_KEY) : null;
+
   if (saved) {
     const buf = Uint8Array.from(atob(saved), c => c.charCodeAt(0));
     db = new SQL.Database(buf);
     migrarSchema(db);
   } else {
+    // Versión nueva (o primera vez): DB limpia desde cero.
+    // Si había una DB vieja de una versión anterior, se descarta aquí
+    // a propósito — así ningún expediente ajeno queda "atorado" en el
+    // dispositivo esperando a que vuelva a haber conexión.
     db = new SQL.Database();
     initSchema(db);
+    localStorage.setItem(VERSION_KEY, String(VERSION_ACTUAL));
   }
 
   return db;
@@ -26,6 +41,7 @@ export function saveDb() {
   const data = db.export();
   const b64 = btoa(String.fromCharCode(...data));
   localStorage.setItem(STORAGE_KEY, b64);
+  localStorage.setItem(VERSION_KEY, String(VERSION_ACTUAL));
 }
 
 function initSchema(db: Database) {
@@ -62,23 +78,23 @@ function initSchema(db: Database) {
       imputado                     TEXT,
       victima_ofendido             TEXT,
       proxima_actuacion            TEXT,
-      fecha_audiencia              TEXT,
+      fecha_audiencia               TEXT,
       tipo_audiencia               TEXT,
-      nombre_agente_mp             TEXT,
-      sync_status                  TEXT DEFAULT 'synced',
-      updated_at                   INTEGER
+      nombre_agente_mp              TEXT,
+      sync_status                   TEXT DEFAULT 'synced',
+      updated_at                    INTEGER
     );
 
     CREATE TABLE IF NOT EXISTS expedientes_amparo (
-      expediente_id         INTEGER PRIMARY KEY,
-      tipo_amparo           TEXT,
-      autoridad_responsable TEXT,
-      acto_reclamado        TEXT,
-      tercero_interesado    TEXT,
-      estadio_procesal      TEXT,
-      proxima_audiencia     TEXT,
-      sync_status           TEXT DEFAULT 'synced',
-      updated_at            INTEGER
+      expediente_id          INTEGER PRIMARY KEY,
+      tipo_amparo            TEXT,
+      autoridad_responsable  TEXT,
+      acto_reclamado         TEXT,
+      tercero_interesado     TEXT,
+      estadio_procesal       TEXT,
+      proxima_audiencia      TEXT,
+      sync_status            TEXT DEFAULT 'synced',
+      updated_at             INTEGER
     );
 
     CREATE TABLE IF NOT EXISTS expedientes_civiles (
@@ -138,11 +154,11 @@ function initSchema(db: Database) {
     );
 
     CREATE TABLE IF NOT EXISTS ministerios_publicos (
-      id            INTEGER PRIMARY KEY,
+      id             INTEGER PRIMARY KEY,
       nombre_agencia TEXT,
-      ciudad        TEXT,
-      sync_status   TEXT DEFAULT 'synced',
-      updated_at    INTEGER
+      ciudad         TEXT,
+      sync_status    TEXT DEFAULT 'synced',
+      updated_at     INTEGER
     );
 
     CREATE TABLE IF NOT EXISTS tareas (

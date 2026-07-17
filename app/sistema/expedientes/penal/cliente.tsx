@@ -1,10 +1,20 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTema } from '@/app/sistema/layout'
 import { useExpedientes } from '@/hooks/useExpedientes'
-import { crearCausaPenalLocal, obtenerUsuarioLocalPorEmail } from '@/lib/dbHelpers'
+import {
+  crearCausaPenalLocal,
+  obtenerUsuarioLocalPorEmail,
+  eliminarExpedienteLocal,
+  limpiarExpedienteCacheTrasBorrarOnline,
+  queryColaboradoresLocal,
+  agregarColaboradorLocal,
+  eliminarColaboradorLocal,
+} from '@/lib/dbHelpers'
 import { leerSesionLocal } from '@/lib/authLocal'
+import { createClient } from '@/lib/supabase/client'
+import BannerOffline from '@/components/BannerOffline'
 
 // ─── Tokens OSCUROS (Penal – rojo vino) ─────────────────────────────────
 const T_DARK = {
@@ -79,6 +89,45 @@ export default function ClienteCausasPenales({
   const [mensaje,    setMensaje]    = useState<string | null>(null)
   const [error,      setError]      = useState<string | null>(null)
 
+  const [abogadoActual, setAbogadoActual] = useState<{ id: number; nombre_completo: string } | null>(null)
+
+  // 🆕 Colaboradores seleccionados en el formulario de creación
+  const [colaboradoresForm, setColaboradoresForm] = useState<number[]>([])
+
+  // 🆕 Estado para "Ver más" y "Eliminar"
+  const [detalleAbierto,   setDetalleAbierto]   = useState<any | null>(null)
+  const [eliminarObjetivo, setEliminarObjetivo] = useState<any | null>(null)
+  const [eliminando,       setEliminando]       = useState(false)
+
+  // 🆕 Colaboradores del expediente abierto en el modal de detalle
+  const [colaboradoresDetalle, setColaboradoresDetalle] = useState<any[]>([])
+  const [nuevoColaboradorId,   setNuevoColaboradorId]   = useState<string>('')
+  const [guardandoColaborador, setGuardandoColaborador] = useState(false)
+
+  useEffect(() => {
+    (async () => {
+      const sesion = leerSesionLocal()
+      if (!sesion) return
+      const usuarioLocal = await obtenerUsuarioLocalPorEmail(sesion.email)
+      if (usuarioLocal) {
+        setAbogadoActual({ id: usuarioLocal.id, nombre_completo: usuarioLocal.nombre_completo })
+      }
+    })()
+  }, [])
+
+  // 🆕 Carga colaboradores cada vez que se abre un detalle
+  useEffect(() => {
+    if (!detalleAbierto) {
+      setColaboradoresDetalle([])
+      setNuevoColaboradorId('')
+      return
+    }
+    (async () => {
+      const lista = await queryColaboradoresLocal(detalleAbierto.id)
+      setColaboradoresDetalle(lista)
+    })()
+  }, [detalleAbierto])
+
   const hoy = new Date().toISOString().split('T')[0]
 
   const proxTermo = (tareas: any[]) =>
@@ -112,13 +161,25 @@ export default function ClienteCausasPenales({
     termino:    causasActivas.filter(c => esActivo(c.estado) && proxTermo(c.tareas) !== null).length,
   }
 
+  // 🆕 Marca/desmarca un abogado en el checklist del formulario
+  function alternarColaboradorForm(id: number) {
+    setColaboradoresForm(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    )
+  }
+
   async function manejarSubmit(formData: FormData) {
     setError(null)
     try {
       const sesion = leerSesionLocal()
       const usuarioLocal = sesion ? await obtenerUsuarioLocalPorEmail(sesion.email) : null
 
-      await crearCausaPenalLocal({
+      if (!usuarioLocal) {
+        setError('No se pudo identificar al usuario en sesión. Vuelve a iniciar sesión.')
+        return
+      }
+
+      const { expedienteId } = await crearCausaPenalLocal({
         cliente_nombre: formData.get('cliente_nombre') as string,
         numero_causa:   formData.get('numero_causa') as string,
         numero_carpeta: (formData.get('numero_carpeta') as string) || null,
@@ -131,12 +192,19 @@ export default function ClienteCausasPenales({
         contraparte:    (formData.get('contraparte') as string) || null,
         juez_id:        Number(formData.get('juez_id')) || null,
         mp_id:          Number(formData.get('mp_id')) || null,
-        abogado_id:     Number(formData.get('abogado_id')) || null,
+        abogado_id:     usuarioLocal.id,
         descripcion:    (formData.get('descripcion') as string) || null,
-      }, usuarioLocal?.id ?? null)
+      }, usuarioLocal.id)
+
+      // 🆕 Agrega colaboradores adicionales marcados en el checklist
+      for (const colabId of colaboradoresForm) {
+        if (colabId === usuarioLocal.id) continue
+        await agregarColaboradorLocal(expedienteId, colabId, false)
+      }
 
       setMensaje('Causa penal creada correctamente.')
       setAbierto(false)
+      setColaboradoresForm([])
       setTimeout(() => setMensaje(null), 3000)
 
       if (isOnline) await sincronizar()
@@ -146,7 +214,93 @@ export default function ClienteCausasPenales({
     }
   }
 
+  // 🆕 Agrega un colaborador desde el modal de detalle
+  async function manejarAgregarColaboradorDetalle() {
+    if (!detalleAbierto || !nuevoColaboradorId) return
+    setGuardandoColaborador(true)
+    setError(null)
+    try {
+      await agregarColaboradorLocal(detalleAbierto.id, Number(nuevoColaboradorId), false)
+
+      const lista = await queryColaboradoresLocal(detalleAbierto.id)
+      setColaboradoresDetalle(lista)
+      setNuevoColaboradorId('')
+
+      if (isOnline) await sincronizar()
+      else await recargar()
+    } catch (e) {
+      console.error(e)
+      setError('Error al agregar colaborador: ' + String(e))
+    } finally {
+      setGuardandoColaborador(false)
+    }
+  }
+
+  // 🆕 Quita un colaborador desde el modal de detalle
+  async function manejarQuitarColaboradorDetalle(usuarioId: number) {
+    if (!detalleAbierto) return
+    setGuardandoColaborador(true)
+    setError(null)
+    try {
+      await eliminarColaboradorLocal(detalleAbierto.id, usuarioId)
+
+      const lista = await queryColaboradoresLocal(detalleAbierto.id)
+      setColaboradoresDetalle(lista)
+
+      if (isOnline) await sincronizar()
+      else await recargar()
+    } catch (e) {
+      console.error(e)
+      setError('Error al quitar colaborador: ' + String(e))
+    } finally {
+      setGuardandoColaborador(false)
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // 🆕 Eliminar causa penal
+  // Online: borra directo en Supabase y limpia el cache local sin encolar.
+  // Offline: bloqueado en la UI (botón disabled), pero se deja el flujo local
+  // como respaldo.
+  // ─────────────────────────────────────────────────────────────────────────
+  async function manejarEliminar(c: any) {
+    setEliminando(true)
+    setError(null)
+    try {
+      if (isOnline) {
+        const supabase = createClient()
+        const { error: errSupabase } = await supabase
+          .from('expedientes')
+          .delete()
+          .eq('id', c.id)
+
+        if (errSupabase) throw errSupabase
+
+        await limpiarExpedienteCacheTrasBorrarOnline(c.id)
+        await sincronizar()
+      } else {
+        await eliminarExpedienteLocal(c.id)
+        await recargar()
+      }
+
+      setEliminarObjetivo(null)
+      setDetalleAbierto(null)
+      setMensaje('Causa eliminada correctamente.')
+      setTimeout(() => setMensaje(null), 3000)
+    } catch (e) {
+      console.error(e)
+      setError('Error al eliminar la causa: ' + String(e))
+    } finally {
+      setEliminando(false)
+    }
+  }
+
   const s = getStyles(T, oscuro)
+
+  // 🆕 Abogados disponibles para agregar como colaborador en el detalle
+  const abogadosDisponiblesDetalle = abogados.filter(
+    a => !colaboradoresDetalle.some(c => c.usuario_id === a.id)
+  )
 
   return (
     <div style={s.root}>
@@ -180,6 +334,8 @@ export default function ClienteCausasPenales({
         .pen-row-link:hover { background: ${oscuro ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)'}; }
       `}</style>
 
+      <BannerOffline esOffline={!isOnline} />
+
       {/* ── ENCABEZADO ── */}
       <div className="pen-header" style={s.header}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -189,21 +345,6 @@ export default function ClienteCausasPenales({
             Gestión en materia penal
             &nbsp;·&nbsp;
             <strong style={{ color: T.textPrimary }}>{cnt.todos}</strong> registradas
-            &nbsp;·&nbsp;
-            <span style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 4,
-              color: isOnline ? T.green : T.amber
-            }}>
-              <span style={{
-                width: 5, height: 5,
-                borderRadius: '50%',
-                background: isOnline ? T.green : T.amber,
-                display: 'inline-block'
-              }}/>
-              {syncing ? 'Sincronizando...' : isOnline ? 'En línea' : 'Sin conexión'}
-            </span>
           </p>
         </div>
         <button onClick={() => setAbierto(true)} className="pen-btn-new" style={{ ...s.btnPrimario, background: T.accent }}>
@@ -261,7 +402,7 @@ export default function ClienteCausasPenales({
               <table style={s.table}>
                 <thead>
                   <tr>
-                    {['No. Causa','Cliente / Rol','Delito','Etapa','Juez / MP','Estado','Próx. Término'].map(h => (
+                    {['No. Causa','Cliente / Rol','Delito','Etapa','Juez / MP','Estado','Próx. Término','Acciones'].map(h => (
                       <th key={h} style={s.th}>{h}</th>
                     ))}
                   </tr>
@@ -274,7 +415,7 @@ export default function ClienteCausasPenales({
                     const venc  = pt && pt < hoy
                     const act   = esActivo(c.estado)
                     return (
-                      <tr key={c.id} className="pen-row" style={{ cursor: 'pointer' }}>
+                      <tr key={c.id} className="pen-row">
                         <td style={s.td}>
                           <a href={`/sistema/expedientes/penal/detalle?id=${c.id}`} style={{ fontWeight: 600, color: T.textPrimary, fontSize: 13, textDecoration: 'none' }}>
                             {c.numero_expediente}
@@ -306,6 +447,30 @@ export default function ClienteCausasPenales({
                           ) : (
                             <span style={{ color: T.textFaint, fontSize: 13 }}>—</span>
                           )}
+                        </td>
+                        {/* 🆕 Acciones */}
+                        <td style={s.td}>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button
+                              onClick={() => setDetalleAbierto(c)}
+                              style={s.btnIcono(T)}
+                              title="Ver más"
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" />
+                                <circle cx="12" cy="12" r="3" />
+                              </svg>
+                            </button>
+                            <button
+                              onClick={() => setEliminarObjetivo(c)}
+                              style={{ ...s.btnIcono(T), color: T.red, borderColor: `${T.red}44` }}
+                              title="Eliminar"
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z" />
+                              </svg>
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     )
@@ -341,6 +506,8 @@ export default function ClienteCausasPenales({
                         {penal.delito || 'Sin delito'}
                       </div>
                     </div>
+                    {/* Indicador de navegación — tocar la tarjeta lleva a la pantalla
+                        real de detalle, que ya tiene su propio botón de eliminar */}
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ color: T.textFaint, flexShrink: 0 }}>
                       <path d="m9 18 6-6-6-6"/>
                     </svg>
@@ -352,7 +519,7 @@ export default function ClienteCausasPenales({
         )}
       </div>
 
-      {/* ── MODAL MEJORADO – centrado, con márgenes ── */}
+      {/* ── MODAL — Nueva Causa ── */}
       {abierto && (
         <div style={s.overlay} onClick={() => setAbierto(false)}>
           <div style={s.modal} onClick={e => e.stopPropagation()}>
@@ -487,10 +654,13 @@ export default function ClienteCausasPenales({
                     </div>
                     <div className="pen-col-form">
                       <Campo label="Abogado responsable" T={T}>
-                        <select name="abogado_id" style={s.input} defaultValue="">
-                          <option value="">Sin asignar</option>
-                          {abogados.map((a) => <option key={a.id} value={a.id}>{a.nombre_completo}</option>)}
-                        </select>
+                        <input
+                          type="text"
+                          readOnly
+                          disabled
+                          value={abogadoActual?.nombre_completo ?? 'Cargando sesión...'}
+                          style={{ ...s.input, opacity: 0.75, cursor: 'not-allowed' }}
+                        />
                       </Campo>
                     </div>
                   </div>
@@ -499,6 +669,33 @@ export default function ClienteCausasPenales({
                       placeholder="Descripción general del caso..." />
                   </Campo>
                 </Seccion>
+
+                {/* 🆕 Colaboradores adicionales */}
+                <Seccion titulo="Colaboradores" icono="👥" T={T} oscuro={oscuro}>
+                  <p style={{ fontSize: 11.5, color: T.textMuted, margin: '0 0 10px' }}>
+                    {abogadoActual?.nombre_completo ?? 'Tú'} queda como responsable automáticamente.
+                    Marca a quién más debe tener acceso a esta causa.
+                  </p>
+                  {abogados.filter(a => a.id !== abogadoActual?.id).length === 0 ? (
+                    <p style={{ fontSize: 12, color: T.textFaint }}>No hay otros abogados registrados.</p>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 6 }}>
+                      {abogados.filter(a => a.id !== abogadoActual?.id).map(ab => (
+                        <label
+                          key={ab.id}
+                          style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: T.textPrimary, cursor: 'pointer' }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={colaboradoresForm.includes(ab.id)}
+                            onChange={() => alternarColaboradorForm(ab.id)}
+                          />
+                          {ab.nombre_completo}
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </Seccion>
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '16px 24px', borderTop: `1px solid ${T.border}` }}>
@@ -506,6 +703,170 @@ export default function ClienteCausasPenales({
                 <button type="submit" style={{ ...s.btnPrimario, background: T.accent }}>Crear causa</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL — 🆕 Ver más (detalle) ── */}
+      {detalleAbierto && (
+        <div style={s.overlay} onClick={() => setDetalleAbierto(null)}>
+          <div style={s.modal} onClick={e => e.stopPropagation()}>
+            <div style={s.modalHeader}>
+              <div>
+                <h2 style={s.modalTitle}>{detalleAbierto.numero_expediente}</h2>
+                <p style={s.modalSub}>Detalle completo de la causa</p>
+              </div>
+              <button onClick={() => setDetalleAbierto(null)} style={s.btnCerrar} aria-label="Cerrar">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M18 6L6 18M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px' }}>
+              {error && <Alerta tipo="error" oscuro={oscuro}>{error}</Alerta>}
+
+              {(() => {
+                const penal = detalleAbierto.expedientes_penales?.[0] ?? {}
+                return (
+                  <>
+                    <Seccion titulo="Datos generales" icono="📋" T={T} oscuro={oscuro}>
+                      <DetalleFila label="Cliente" valor={detalleAbierto.clientes?.nombre_completo} T={T} />
+                      <DetalleFila label="Rol del cliente" valor={detalleAbierto.caracter_cliente} T={T} />
+                      <DetalleFila label="Rol del abogado" valor={penal.rol_abogado} T={T} />
+                      <DetalleFila label="Estado" valor={detalleAbierto.estado} T={T} />
+                      <DetalleFila label="Fecha de inicio" valor={detalleAbierto.fecha_inicio} T={T} />
+                    </Seccion>
+                    <Seccion titulo="Delito y carpeta" icono="⚖️" T={T} oscuro={oscuro}>
+                      <DetalleFila label="Delito" valor={penal.delito} T={T} />
+                      <DetalleFila label="No. Carpeta de Investigación" valor={penal.numero_carpeta_investigacion} T={T} />
+                      <DetalleFila label="Etapa procesal" valor={penal.estadio_procesal} T={T} />
+                      <DetalleFila label="Contraparte" valor={detalleAbierto.contraparte} T={T} />
+                    </Seccion>
+                    <Seccion titulo="Juez y Ministerio Público" icono="🏛️" T={T} oscuro={oscuro}>
+                      <DetalleFila label="Juez asignado" valor={detalleAbierto.jueces?.nombre} T={T} />
+                      <DetalleFila label="Ministerio Público" valor={penal.ministerios_publicos?.nombre_agencia} T={T} />
+                    </Seccion>
+                    {detalleAbierto.descripcion && (
+                      <Seccion titulo="Descripción / Notas" icono="📝" T={T} oscuro={oscuro}>
+                        <p style={{ fontSize: 13, color: T.textPrimary, margin: 0, lineHeight: 1.5 }}>
+                          {detalleAbierto.descripcion}
+                        </p>
+                      </Seccion>
+                    )}
+
+                    {/* 🆕 Colaboradores */}
+                    <Seccion titulo="Colaboradores" icono="👥" T={T} oscuro={oscuro}>
+                      {colaboradoresDetalle.length === 0 ? (
+                        <p style={{ fontSize: 12, color: T.textFaint, margin: 0 }}>Sin colaboradores registrados.</p>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 6, marginBottom: 12 }}>
+                          {colaboradoresDetalle.map(cl => (
+                            <div
+                              key={cl.usuario_id}
+                              style={{
+                                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                padding: '6px 10px', borderRadius: 6,
+                                background: T.surface, border: `1px solid ${T.border}`,
+                              }}
+                            >
+                              <span style={{ fontSize: 13, color: T.textPrimary }}>
+                                {cl.nombre_completo}
+                                {cl.es_responsable && (
+                                  <span style={{ marginLeft: 6, fontSize: 10.5, color: T.accent }}>· Responsable</span>
+                                )}
+                              </span>
+                              <button
+                                onClick={() => manejarQuitarColaboradorDetalle(cl.usuario_id)}
+                                disabled={guardandoColaborador}
+                                style={{ ...s.btnIcono(T), color: T.red, borderColor: `${T.red}44`, width: 22, height: 22 }}
+                                title="Quitar colaborador"
+                              >
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                  <path d="M18 6L6 18M6 6l12 12" />
+                                </svg>
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {abogadosDisponiblesDetalle.length > 0 && (
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <select
+                            value={nuevoColaboradorId}
+                            onChange={e => setNuevoColaboradorId(e.target.value)}
+                            style={{ ...s.input, flex: 1 }}
+                          >
+                            <option value="">Agregar colaborador...</option>
+                            {abogadosDisponiblesDetalle.map(a => (
+                              <option key={a.id} value={a.id}>{a.nombre_completo}</option>
+                            ))}
+                          </select>
+                          <button
+                            onClick={manejarAgregarColaboradorDetalle}
+                            disabled={!nuevoColaboradorId || guardandoColaborador}
+                            style={{ ...s.btnSec, whiteSpace: 'nowrap' as const }}
+                          >
+                            {guardandoColaborador ? 'Agregando...' : 'Agregar'}
+                          </button>
+                        </div>
+                      )}
+                    </Seccion>
+                  </>
+                )
+              })()}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '16px 24px', borderTop: `1px solid ${T.border}` }}>
+              <button
+                onClick={() => setEliminarObjetivo(detalleAbierto)}
+                style={{ ...s.btnSec, color: T.red, borderColor: `${T.red}55` }}
+              >
+                Eliminar causa
+              </button>
+              <button onClick={() => setDetalleAbierto(null)} style={{ ...s.btnPrimario, background: T.accent }}>Cerrar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL — 🆕 Confirmar eliminación ── */}
+      {eliminarObjetivo && (
+        <div style={{ ...s.overlay, zIndex: 300 }} onClick={() => !eliminando && setEliminarObjetivo(null)}>
+          <div style={{ ...s.modal, maxWidth: 420, maxHeight: 'none' }} onClick={e => e.stopPropagation()}>
+            <div style={{ padding: 24 }}>
+              <h2 style={s.modalTitle}>¿Eliminar causa?</h2>
+              <p style={{ fontSize: 13, color: T.textMuted, marginTop: 8 }}>
+                Vas a eliminar la causa{' '}
+                <strong style={{ color: T.textPrimary }}>{eliminarObjetivo.numero_expediente}</strong>.
+                Esta acción no se puede deshacer.
+              </p>
+              {!isOnline && (
+                <div style={{ marginTop: 12 }}>
+                  <Alerta tipo="error" oscuro={oscuro}>
+                    Necesitas conexión a internet para eliminar una causa.
+                  </Alerta>
+                </div>
+              )}
+              {error && (
+                <div style={{ marginTop: 12 }}>
+                  <Alerta tipo="error" oscuro={oscuro}>{error}</Alerta>
+                </div>
+              )}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '0 24px 24px' }}>
+              <button onClick={() => setEliminarObjetivo(null)} disabled={eliminando} style={s.btnSec}>
+                Cancelar
+              </button>
+              <button
+                onClick={() => manejarEliminar(eliminarObjetivo)}
+                disabled={!isOnline || eliminando}
+                style={{ ...s.btnPrimario, background: T.red, opacity: (!isOnline || eliminando) ? 0.5 : 1 }}
+              >
+                {eliminando ? 'Eliminando...' : 'Sí, eliminar'}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -556,6 +917,16 @@ function Campo({ label, T, children }: { label: string; T: typeof T_DARK; childr
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8 }}>
       <label style={{ fontSize: 11, fontWeight: 600, color: T.textMuted }}>{label}</label>
       {children}
+    </div>
+  )
+}
+
+// 🆕 Fila de solo lectura para el modal de detalle
+function DetalleFila({ label, valor, T }: { label: string; valor: any; T: typeof T_DARK }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '6px 0', borderBottom: `1px solid ${T.border}` }}>
+      <span style={{ fontSize: 12, color: T.textMuted }}>{label}</span>
+      <span style={{ fontSize: 13, color: T.textPrimary, fontWeight: 500, textAlign: 'right' }}>{valor || '—'}</span>
     </div>
   )
 }
@@ -629,6 +1000,17 @@ const getStyles = (T: typeof T_DARK, oscuro: boolean) => ({
     cursor: 'pointer',
     flexShrink: 0,
   } as React.CSSProperties,
+  // 🆕 Botón de ícono para acciones (Ver más / Eliminar)
+  btnIcono: (T: typeof T_DARK) => ({
+    width: 26, height: 26,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    border: `1px solid ${T.border}`,
+    borderRadius: 6,
+    background: T.surfaceLow,
+    color: T.textMuted,
+    cursor: 'pointer',
+    flexShrink: 0,
+  }) as React.CSSProperties,
   filtrosRow: {
     display: 'flex',
     alignItems: 'center',
@@ -681,7 +1063,7 @@ const getStyles = (T: typeof T_DARK, oscuro: boolean) => ({
   table: {
     width: '100%',
     borderCollapse: 'collapse' as const,
-    minWidth: 700,
+    minWidth: 780,
   },
   th: {
     padding: '8px 14px',
@@ -721,7 +1103,6 @@ const getStyles = (T: typeof T_DARK, oscuro: boolean) => ({
     fontWeight: 600,
     color: T.textPrimary,
   } as React.CSSProperties,
-  // ✅ Overlay: padding para que el modal nunca toque los bordes
   overlay: {
     position: 'fixed' as const,
     inset: 0,
@@ -730,17 +1111,16 @@ const getStyles = (T: typeof T_DARK, oscuro: boolean) => ({
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: '12px', // margen alrededor del modal
+    padding: '12px',
     zIndex: 200,
   },
-  // ✅ Modal: siempre tiene un ancho máximo y altura máxima, centrado
   modal: {
     background: T.surface,
     border: `1px solid ${T.border}`,
     borderRadius: 12,
     width: '100%',
     maxWidth: 600,
-    maxHeight: '90vh', // no ocupa toda la pantalla
+    maxHeight: '90vh',
     display: 'flex',
     flexDirection: 'column' as const,
     overflow: 'hidden',

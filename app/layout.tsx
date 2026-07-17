@@ -14,14 +14,14 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Jurídico Legal",
+  title: "RALEX",
   description: "Sistema de Gestión Jurídica",
   manifest: "/manifest.json",
   themeColor: "#3a5fb8",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "Jurídico Legal",
+    title: "RALEX",
   },
   icons: {
     icon: "/img/icon-192x192.png",

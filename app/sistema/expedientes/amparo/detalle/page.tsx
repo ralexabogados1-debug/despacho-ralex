@@ -9,6 +9,9 @@ import {
   queryDetalleAmparoLocal,
   eliminarExpedienteLocal,
   limpiarExpedienteCacheTrasBorrarOnline,
+  actualizarExpedienteAmparoLocal,
+  crearTareaLocal,
+  toggleTareaLocal,
 } from '@/lib/dbHelpers'
 import { syncConSupabase } from '@/lib/sync'
 
@@ -69,10 +72,28 @@ export default function DetalleAmparoPage() {
   const [error, setError] = useState(false)
   const [esOffline, setEsOffline] = useState(false)
 
-  // 🗑️ Estado para eliminar
   const [confirmarEliminar, setConfirmarEliminar] = useState(false)
   const [eliminando, setEliminando] = useState(false)
   const [errorEliminar, setErrorEliminar] = useState<string | null>(null)
+
+  const [editando, setEditando] = useState(false)
+  const [camposEditados, setCamposEditados] = useState<any>({
+    numero_expediente: '',
+    fecha_inicio: '',
+    descripcion: '',
+    tipo_amparo: '',
+    tercero_interesado: '',
+    autoridad_responsable: '',
+    acto_reclamado: '',
+  })
+  const [guardando, setGuardando] = useState(false)
+  const [errorGuardar, setErrorGuardar] = useState<string | null>(null)
+
+  const [mostrarModalTarea, setMostrarModalTarea] = useState(false)
+  const [nuevaTareaDesc, setNuevaTareaDesc] = useState('')
+  const [nuevaTareaFecha, setNuevaTareaFecha] = useState('')
+  const [creandoTarea, setCreandoTarea] = useState(false)
+  const [errorTarea, setErrorTarea] = useState<string | null>(null)
 
   useEffect(() => {
     if (!id || Number.isNaN(amparoId)) {
@@ -93,9 +114,6 @@ export default function DetalleAmparoPage() {
     }
 
     const fetchData = async () => {
-      // 🌐 Igual que en el dashboard: revisa navigator.onLine ANTES de
-      // intentar la red, para no depender de un timeout que compita con
-      // el service worker.
       if (!navigator.onLine) {
         await cargarDesdeLocal()
         setLoading(false)
@@ -124,9 +142,6 @@ export default function DetalleAmparoPage() {
           .single()
 
         if (fetchError || !ampRaw) {
-          // 🌐 Si falla la red a medio camino (o el registro sólo existe
-          // en cache aún sin sincronizar), cae al cache local antes de
-          // declarar 404.
           const cayoOffline = await cargarDesdeLocal()
           if (!cayoOffline) notFound()
           return
@@ -165,8 +180,6 @@ export default function DetalleAmparoPage() {
 
     fetchData()
 
-    // 🌐 Si vuelve la conexión estando en esta pantalla, re-sincroniza y
-    // vuelve a cargar el detalle fresco de Supabase.
     const alVolverConexion = () => {
       syncConSupabase().finally(fetchData)
     }
@@ -174,7 +187,6 @@ export default function DetalleAmparoPage() {
     return () => window.removeEventListener('online', alVolverConexion)
   }, [amparoId, id, router, supabase])
 
-  // 🗑️ Elimina el expediente de amparo y regresa al listado
   async function manejarEliminar() {
     setErrorEliminar(null)
     setEliminando(true)
@@ -186,13 +198,8 @@ export default function DetalleAmparoPage() {
           .eq('id', amparoId)
 
         if (delError) throw delError
-
-        // Limpia también el cache local para que no reaparezca si se
-        // pierde la conexión antes del próximo sync.
         await limpiarExpedienteCacheTrasBorrarOnline(amparoId).catch(() => {})
       } else {
-        // Sin conexión: borra del cache y encola el delete para cuando
-        // vuelva la red (sync_queue lo procesa en subirPendientes()).
         await eliminarExpedienteLocal(amparoId)
       }
 
@@ -203,14 +210,172 @@ export default function DetalleAmparoPage() {
     }
   }
 
-  // ── Variables derivadas y hooks ANTES de cualquier return ──────────────────
+  const habilitarEdicion = () => {
+    setCamposEditados({
+      numero_expediente: amp.numero_expediente || '',
+      fecha_inicio: amp.fecha_inicio || '',
+      descripcion: amp.descripcion || '',
+      tipo_amparo: amp.datos?.tipo_amparo || '',
+      tercero_interesado: amp.datos?.tercero_interesado || '',
+      autoridad_responsable: amp.datos?.autoridad_responsable || '',
+      acto_reclamado: amp.datos?.acto_reclamado || '',
+    })
+    setErrorGuardar(null)
+    setEditando(true)
+  }
+
+  async function manejarGuardar() {
+    setErrorGuardar(null)
+    setGuardando(true)
+    try {
+      if (navigator.onLine) {
+        const { error: expError } = await supabase
+          .from('expedientes')
+          .update({
+            numero_expediente: camposEditados.numero_expediente,
+            fecha_inicio: camposEditados.fecha_inicio || null,
+            descripcion: camposEditados.descripcion || null,
+          })
+          .eq('id', amparoId)
+
+        if (expError) throw expError
+
+        const { error: ampError } = await supabase
+          .from('expedientes_amparo')
+          .update({
+            tipo_amparo: camposEditados.tipo_amparo || null,
+            tercero_interesado: camposEditados.tercero_interesado || null,
+            autoridad_responsable: camposEditados.autoridad_responsable || null,
+            acto_reclamado: camposEditados.acto_reclamado || null,
+          })
+          .eq('expediente_id', amparoId)
+
+        if (ampError) throw ampError
+
+        await syncConSupabase().catch(() => {})
+      } else {
+        await actualizarExpedienteAmparoLocal(
+          amparoId,
+          {
+            numero_expediente: camposEditados.numero_expediente,
+            fecha_inicio: camposEditados.fecha_inicio || null,
+            descripcion: camposEditados.descripcion || null,
+          },
+          {
+            tipo_amparo: camposEditados.tipo_amparo || null,
+            tercero_interesado: camposEditados.tercero_interesado || null,
+            autoridad_responsable: camposEditados.autoridad_responsable || null,
+            acto_reclamado: camposEditados.acto_reclamado || null,
+          }
+        )
+      }
+
+      setAmp((prev: any) => ({
+        ...prev,
+        numero_expediente: camposEditados.numero_expediente,
+        fecha_inicio: camposEditados.fecha_inicio,
+        descripcion: camposEditados.descripcion,
+        datos: {
+          ...prev.datos,
+          tipo_amparo: camposEditados.tipo_amparo,
+          tercero_interesado: camposEditados.tercero_interesado,
+          autoridad_responsable: camposEditados.autoridad_responsable,
+          acto_reclamado: camposEditados.acto_reclamado,
+        }
+      }))
+
+      setEditando(false)
+    } catch (e: any) {
+      setErrorGuardar(e?.message ?? 'No se pudieron guardar los cambios. Intenta de nuevo.')
+    } finally {
+      setGuardando(false)
+    }
+  }
+
+  async function manejarAgregarTarea(e: React.FormEvent) {
+    e.preventDefault()
+    if (!nuevaTareaDesc.trim()) return
+
+    setErrorTarea(null)
+    setCreandoTarea(true)
+
+    try {
+      let nuevaTarea: any
+
+      if (navigator.onLine) {
+        const { data, error: insError } = await supabase
+          .from('tareas')
+          .insert({
+            expediente_id: amparoId,
+            descripcion: nuevaTareaDesc.trim(),
+            fecha_vencimiento: nuevaTareaFecha || null,
+            completada: false,
+          })
+          .select()
+          .single()
+
+        if (insError) throw insError
+        nuevaTarea = {
+          id: data.id,
+          descripcion: data.descripcion,
+          fecha_vencimiento: data.fecha_vencimiento,
+          completada: data.completada,
+        }
+      } else {
+        const { tareaId } = await crearTareaLocal(amparoId, nuevaTareaDesc.trim(), nuevaTareaFecha || null)
+        nuevaTarea = {
+          id: tareaId,
+          descripcion: nuevaTareaDesc.trim(),
+          fecha_vencimiento: nuevaTareaFecha || null,
+          completada: false,
+        }
+      }
+
+      setAmp((prev: any) => ({
+        ...prev,
+        tareas: [...(prev.tareas || []), nuevaTarea],
+      }))
+
+      setNuevaTareaDesc('')
+      setNuevaTareaFecha('')
+      setMostrarModalTarea(false)
+    } catch (err: any) {
+      setErrorTarea(err?.message ?? 'No se pudo crear la tarea. Intenta de nuevo.')
+    } finally {
+      setCreandoTarea(false)
+    }
+  }
+
+  async function toggleTarea(tareaId: number, completadaActual: boolean) {
+    try {
+      if (navigator.onLine) {
+        const { error: updError } = await supabase
+          .from('tareas')
+          .update({ completada: !completadaActual })
+          .eq('id', tareaId)
+
+        if (updError) throw updError
+      } else {
+        await toggleTareaLocal(tareaId, !completadaActual)
+      }
+
+      setAmp((prev: any) => ({
+        ...prev,
+        tareas: prev.tareas.map((t: any) =>
+          t.id === tareaId ? { ...t, completada: !completadaActual } : t
+        ),
+      }))
+    } catch (e: any) {
+      alert('Error al actualizar la tarea: ' + (e?.message ?? 'Intenta de nuevo.'))
+    }
+  }
+
   const activo = amp?.estado === 'Activo' || amp?.estado === 'En trámite'
   const totalTareas = amp?.tareas?.length ?? 0
   const completadas = amp?.tareas?.filter((t: any) => t.completada).length ?? 0
   const progreso = totalTareas > 0 ? Math.round((completadas / totalTareas) * 100) : 0
   const s = useMemo(() => getStyles(T, oscuro), [T, oscuro])
 
-  // ── Early returns DESPUÉS de todos los hooks ───────────────────────────────
   if (loading) {
     return (
       <div style={{ display: 'flex', minHeight: '100vh', background: T.bg, alignItems: 'center', justifyContent: 'center' }}>
@@ -227,41 +392,9 @@ export default function DetalleAmparoPage() {
   return (
     <div style={s.root}>
       <style>{`
-        .amp-detalle-grid {
-          grid-template-columns: 1fr 360px;
-        }
-        @media (max-width: 900px) {
-          .amp-detalle-grid {
-            grid-template-columns: 1fr !important;
-          }
-          .amp-detalle-root {
-            max-width: 100% !important;
-            padding: 16px !important;
-          }
-        }
-        @media (max-width: 640px) {
-          .amp-hero {
-            flex-direction: column !important;
-            align-items: stretch !important;
-          }
-          .amp-hero .amp-badge {
-            align-self: flex-start;
-          }
-          .amp-actions {
-            flex-direction: column-reverse !important;
-            align-items: stretch !important;
-          }
-          .amp-actions-derecha {
-            width: 100% !important;
-          }
-          .amp-actions-derecha button {
-            flex: 1 1 auto;
-          }
-          .amp-btn-eliminar {
-            width: 100% !important;
-            justify-content: center !important;
-          }
-        }
+        .amp-detalle-grid { grid-template-columns: 1fr 360px; }
+        @media (max-width: 900px) { .amp-detalle-grid { grid-template-columns: 1fr !important; } .amp-detalle-root { max-width: 100% !important; padding: 16px !important; } }
+        @media (max-width: 640px) { .amp-hero { flex-direction: column !important; align-items: stretch !important; } .amp-hero .amp-badge { align-self: flex-start; } .amp-actions { flex-direction: column-reverse !important; align-items: stretch !important; } .amp-actions-derecha { width: 100% !important; } .amp-actions-derecha button { flex: 1 1 auto; } .amp-btn-eliminar { width: 100% !important; justify-content: center !important; } }
       `}</style>
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' as const }}>
@@ -283,23 +416,40 @@ export default function DetalleAmparoPage() {
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={s.eyebrow}>
             <span style={s.dot} />
-            {amp.datos?.tipo_amparo || 'Amparo Indirecto'}
+            {editando ? 'Editando información' : (amp.datos?.tipo_amparo || 'Amparo Indirecto')}
           </div>
-          <h1 style={s.titulo}>{amp.numero_expediente}</h1>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', marginTop: 8 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.textMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
-              </svg>
-              <span style={{ fontSize: 13, color: T.textMuted }}>{amp.cliente || 'Sin cliente asignado'}</span>
+          
+          {editando ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
+              <label style={s.labelInput}>Número de Expediente</label>
+              <input
+                type="text"
+                style={{ ...s.input, fontSize: 'clamp(20px, 4vw, 26px)', fontWeight: 700, maxWidth: 400 }}
+                value={camposEditados.numero_expediente}
+                onChange={e => setCamposEditados({ ...camposEditados, numero_expediente: e.target.value })}
+                disabled={guardando}
+              />
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.textMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>
-              </svg>
-              <span style={{ fontSize: 13, color: T.textMuted }}>{amp.fecha_inicio || '—'}</span>
+          ) : (
+            <h1 style={s.titulo}>{amp.numero_expediente}</h1>
+          )}
+
+          {!editando && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', marginTop: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.textMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+                </svg>
+                <span style={{ fontSize: 13, color: T.textMuted }}>{amp.cliente || 'Sin cliente asignado'}</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.textMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>
+                </svg>
+                <span style={{ fontSize: 13, color: T.textMuted }}>{amp.fecha_inicio || '—'}</span>
+              </div>
             </div>
-          </div>
+          )}
         </div>
         <div className="amp-badge" style={{
           ...s.badge,
@@ -314,19 +464,72 @@ export default function DetalleAmparoPage() {
 
       <div className="amp-detalle-grid" style={s.contentGrid}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          
           <Seccion titulo="Información del Amparo" icono={
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
             </svg>
           } T={T} oscuro={oscuro}>
-            <div style={s.grid2}>
-              <Dato label="Quejoso" valor={amp.cliente} T={T} />
-              <Dato label="Tipo de amparo" valor={amp.datos?.tipo_amparo} T={T} />
-              <Dato label="Fecha de presentación" valor={amp.fecha_inicio} T={T} />
-              <Dato label="Tercero interesado" valor={amp.datos?.tercero_interesado} T={T} />
-              <Dato label="Juzgado de Distrito" valor={amp.juzgado ? `${amp.juzgado.nombre} (${amp.juzgado.ciudad})` : null} T={T} />
-              <Dato label="Autoridad responsable" valor={amp.datos?.autoridad_responsable} T={T} />
-            </div>
+            {editando ? (
+              <div style={s.grid2}>
+                <Dato label="Quejoso (Solo Lectura)" valor={amp.cliente} T={T} />
+                
+                <div>
+                  <label style={s.labelInput}>Tipo de amparo</label>
+                  <input
+                    type="text"
+                    style={s.input}
+                    value={camposEditados.tipo_amparo}
+                    onChange={e => setCamposEditados({ ...camposEditados, tipo_amparo: e.target.value })}
+                    disabled={guardando}
+                  />
+                </div>
+
+                <div>
+                  <label style={s.labelInput}>Fecha de presentación</label>
+                  <input
+                    type="date"
+                    style={s.input}
+                    value={camposEditados.fecha_inicio}
+                    onChange={e => setCamposEditados({ ...camposEditados, fecha_inicio: e.target.value })}
+                    disabled={guardando}
+                  />
+                </div>
+
+                <div>
+                  <label style={s.labelInput}>Tercero interesado</label>
+                  <input
+                    type="text"
+                    style={s.input}
+                    value={camposEditados.tercero_interesado}
+                    onChange={e => setCamposEditados({ ...camposEditados, tercero_interesado: e.target.value })}
+                    disabled={guardando}
+                  />
+                </div>
+
+                <Dato label="Juzgado de Distrito (Solo Lectura)" valor={amp.juzgado ? `${amp.juzgado.nombre} (${amp.juzgado.ciudad})` : null} T={T} />
+
+                <div>
+                  <label style={s.labelInput}>Autoridad responsable</label>
+                  <input
+                    type="text"
+                    style={s.input}
+                    value={camposEditados.autoridad_responsable}
+                    onChange={e => setCamposEditados({ ...camposEditados, autoridad_responsable: e.target.value })}
+                    disabled={guardando}
+                  />
+                </div>
+              </div>
+            ) : (
+              <div style={s.grid2}>
+                <Dato label="Quejoso" valor={amp.cliente} T={T} />
+                <Dato label="Tipo de amparo" valor={amp.datos?.tipo_amparo} T={T} />
+                <Dato label="Fecha de presentación" valor={amp.fecha_inicio} T={T} />
+                <Dato label="Tercero interesado" valor={amp.datos?.tercero_interesado} T={T} />
+                <Dato label="Juzgado de Distrito" valor={amp.juzgado ? `${amp.juzgado.nombre} (${amp.juzgado.ciudad})` : null} T={T} />
+                <Dato label="Autoridad responsable" valor={amp.datos?.autoridad_responsable} T={T} />
+              </div>
+            )}
           </Seccion>
 
           <Seccion titulo="Acto Reclamado" icono={
@@ -334,7 +537,18 @@ export default function DetalleAmparoPage() {
               <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
             </svg>
           } T={T} oscuro={oscuro}>
-            {amp.datos?.acto_reclamado ? (
+            {editando ? (
+              <div>
+                <label style={s.labelInput}>Acto Reclamado</label>
+                <textarea
+                  style={{ ...s.input, minHeight: 90, resize: 'vertical' as const }}
+                  value={camposEditados.acto_reclamado}
+                  onChange={e => setCamposEditados({ ...camposEditados, acto_reclamado: e.target.value })}
+                  disabled={guardando}
+                  placeholder="Escribe el acto reclamado..."
+                />
+              </div>
+            ) : amp.datos?.acto_reclamado ? (
               <div style={s.actoBox}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={T.gold} strokeWidth="1.5" style={{ flexShrink: 0, opacity: 0.5 }}>
                   <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/>
@@ -346,15 +560,28 @@ export default function DetalleAmparoPage() {
             )}
           </Seccion>
 
-          {amp.descripcion && (
+          {(amp.descripcion || editando) && (
             <Seccion titulo="Observaciones" icono={
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
               </svg>
             } T={T} oscuro={oscuro}>
-              <p style={{ color: T.textMuted, fontSize: 13.5, lineHeight: 1.6, margin: 0 }}>
-                {amp.descripcion}
-              </p>
+              {editando ? (
+                <div>
+                  <label style={s.labelInput}>Observaciones generales</label>
+                  <textarea
+                    style={{ ...s.input, minHeight: 90, resize: 'vertical' as const }}
+                    value={camposEditados.descripcion}
+                    onChange={e => setCamposEditados({ ...camposEditados, descripcion: e.target.value })}
+                    disabled={guardando}
+                    placeholder="Escribe notas adicionales sobre el amparo..."
+                  />
+                </div>
+              ) : (
+                <p style={{ color: T.textMuted, fontSize: 13.5, lineHeight: 1.6, margin: 0 }}>
+                  {amp.descripcion}
+                </p>
+              )}
             </Seccion>
           )}
         </div>
@@ -366,7 +593,12 @@ export default function DetalleAmparoPage() {
             </svg>
           } T={T} oscuro={oscuro}>
             {totalTareas === 0 ? (
-              <p style={{ color: T.textFaint, fontSize: 13, margin: 0 }}>Sin tareas registradas para este amparo.</p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <p style={{ color: T.textFaint, fontSize: 13, margin: 0 }}>Sin tareas registradas para este amparo.</p>
+                <button style={{ ...s.btnSecundario, padding: '6px 12px', fontSize: 12, width: 'fit-content' }} onClick={() => setMostrarModalTarea(true)}>
+                  + Agregar primera tarea
+                </button>
+              </div>
             ) : (
               <>
                 <div style={s.progresoBar}>
@@ -378,13 +610,23 @@ export default function DetalleAmparoPage() {
                     const vencida = !t.completada && t.fecha_vencimiento && t.fecha_vencimiento < new Date().toISOString().split('T')[0]
                     return (
                       <div key={t.id} style={s.tareaCard(t.completada, vencida)}>
-                        <div style={s.tareaCheck(t.completada)}>
+                        <button 
+                          onClick={() => toggleTarea(t.id, t.completada)}
+                          style={{
+                            ...s.tareaCheck(t.completada),
+                            background: 'transparent',
+                            cursor: 'pointer',
+                            padding: 0,
+                            outline: 'none',
+                          }}
+                          title={t.completada ? 'Marcar como pendiente' : 'Marcar como completada'}
+                        >
                           {t.completada && (
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                               <path d="M20 6L9 17l-5-5"/>
                             </svg>
                           )}
-                        </div>
+                        </button>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <span style={{
                             fontSize: 13.5,
@@ -410,31 +652,55 @@ export default function DetalleAmparoPage() {
         </div>
       </div>
 
-      {/* ── ACCIONES ── */}
       <div className="amp-actions" style={s.actions}>
-        <button className="amp-btn-eliminar" style={s.btnPeligro} onClick={() => setConfirmarEliminar(true)}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6"/>
-          </svg>
-          Eliminar
-        </button>
-        <div className="amp-actions-derecha" style={{ display: 'flex', gap: 12, flexWrap: 'wrap' as const }}>
-          <button style={s.btnSecundario}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-            </svg>
-            Editar Amparo
-          </button>
-          <button style={s.btnPrimario}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 5v14M5 12h14"/>
-            </svg>
-            Agregar Tarea
-          </button>
-        </div>
+        {editando ? (
+          <>
+            <button 
+              style={s.btnSecundario} 
+              onClick={() => setEditando(false)} 
+              disabled={guardando}
+            >
+              Cancelar
+            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' as const }}>
+              {errorGuardar && (
+                <span style={{ color: T.red, fontSize: 12.5 }}>{errorGuardar}</span>
+              )}
+              <button 
+                style={s.btnPrimario} 
+                onClick={manejarGuardar} 
+                disabled={guardando}
+              >
+                {guardando ? 'Guardando...' : 'Guardar Cambios'}
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <button className="amp-btn-eliminar" style={s.btnPeligro} onClick={() => setConfirmarEliminar(true)}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6"/>
+              </svg>
+              Eliminar
+            </button>
+            <div className="amp-actions-derecha" style={{ display: 'flex', gap: 12, flexWrap: 'wrap' as const }}>
+              <button style={s.btnSecundario} onClick={habilitarEdicion}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                </svg>
+                Editar Amparo
+              </button>
+              <button style={s.btnPrimario} onClick={() => setMostrarModalTarea(true)}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M5 12h14M12 5v14"/>
+                </svg>
+                Agregar Tarea
+              </button>
+            </div>
+          </>
+        )}
       </div>
 
-      {/* ── MODAL DE CONFIRMACIÓN ── */}
       {confirmarEliminar && (
         <div style={s.overlay} onClick={() => !eliminando && setConfirmarEliminar(false)}>
           <div style={s.modalConfirm} onClick={e => e.stopPropagation()}>
@@ -464,6 +730,71 @@ export default function DetalleAmparoPage() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {mostrarModalTarea && (
+        <div style={s.overlay} onClick={() => !creandoTarea && setMostrarModalTarea(false)}>
+          <form onSubmit={manejarAgregarTarea} style={s.modalConfirm} onClick={e => e.stopPropagation()}>
+            <div style={{ ...s.modalConfirmIcon, background: T.goldAlpha }}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={T.gold} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+              </svg>
+            </div>
+            <h3 style={s.modalConfirmTitulo}>Nueva Tarea / Término</h3>
+            <p style={{ ...s.modalConfirmTexto, marginBottom: 16 }}>
+              Añade una nueva tarea o término de vencimiento asociado a este expediente de amparo.
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div>
+                <label style={s.labelInput}>Descripción de la tarea</label>
+                <input
+                  type="text"
+                  required
+                  style={s.input}
+                  placeholder="Ej. Presentar alegatos de amparo"
+                  value={nuevaTareaDesc}
+                  onChange={e => setNuevaTareaDesc(e.target.value)}
+                  disabled={creandoTarea}
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label style={s.labelInput}>Fecha límite / Vencimiento (Opcional)</label>
+                <input
+                  type="date"
+                  style={s.input}
+                  value={nuevaTareaFecha}
+                  onChange={e => setNuevaTareaFecha(e.target.value)}
+                  disabled={creandoTarea}
+                />
+              </div>
+            </div>
+
+            {errorTarea && (
+              <p style={{ color: T.red, fontSize: 12.5, marginTop: 12, marginBottom: 0 }}>{errorTarea}</p>
+            )}
+
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 24 }}>
+              <button 
+                type="button" 
+                style={s.btnSecundario} 
+                onClick={() => setMostrarModalTarea(false)} 
+                disabled={creandoTarea}
+              >
+                Cancelar
+              </button>
+              <button 
+                type="submit" 
+                style={s.btnPrimario} 
+                disabled={creandoTarea}
+              >
+                {creandoTarea ? 'Creando...' : 'Crear Tarea'}
+              </button>
+            </div>
+          </form>
         </div>
       )}
     </div>
@@ -708,7 +1039,6 @@ function getStyles(T: typeof T_DARK, oscuro: boolean) {
       whiteSpace: 'nowrap' as const,
       transition: 'background 0.2s',
     } as React.CSSProperties,
-    // 🗑️ Botón de eliminar (outline rojo) en la barra de acciones
     btnPeligro: {
       display: 'flex',
       alignItems: 'center',
@@ -725,7 +1055,6 @@ function getStyles(T: typeof T_DARK, oscuro: boolean) {
       whiteSpace: 'nowrap' as const,
       transition: 'background 0.2s',
     } as React.CSSProperties,
-    // 🗑️ Botón sólido rojo dentro del modal de confirmación
     btnPeligroSolido: {
       display: 'flex',
       alignItems: 'center',
@@ -782,6 +1111,28 @@ function getStyles(T: typeof T_DARK, oscuro: boolean) {
       color: T.textMuted,
       lineHeight: 1.6,
       margin: 0,
+    } as React.CSSProperties,
+    input: {
+      width: '100%',
+      padding: '10px 14px',
+      background: T.surfaceHover,
+      border: `1px solid ${T.border}`,
+      borderRadius: 8,
+      color: T.textPrimary,
+      fontSize: 13.5,
+      outline: 'none',
+      transition: 'border-color 0.2s',
+      boxSizing: 'border-box' as const,
+      fontFamily: 'inherit',
+    } as React.CSSProperties,
+    labelInput: {
+      display: 'block',
+      fontSize: 11,
+      fontWeight: 600,
+      color: T.textFaint,
+      letterSpacing: '0.04em',
+      textTransform: 'uppercase' as const,
+      marginBottom: 6,
     } as React.CSSProperties,
   }
 }
