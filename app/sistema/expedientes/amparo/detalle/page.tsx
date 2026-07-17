@@ -2,7 +2,7 @@
 
 export const dynamic = 'force-dynamic'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, Suspense } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams, notFound } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
@@ -55,7 +55,8 @@ const T_LIGHT = {
   textAccent: '#1e3a8a',
 }
 
-export default function DetalleAmparoPage() {
+// ── Componente interno (usa useSearchParams) ──────────────────────────────
+function DetalleAmparoPage() {
   const searchParams = useSearchParams()
   const id = searchParams.get('id')
   const amparoId = Number(id)
@@ -420,7 +421,7 @@ export default function DetalleAmparoPage() {
             <span style={s.dot} />
             {editando ? 'Editando información' : (amp.datos?.tipo_amparo || 'Amparo Indirecto')}
           </div>
-          
+
           {editando ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
               <label style={s.labelInput}>Número de Expediente</label>
@@ -466,7 +467,7 @@ export default function DetalleAmparoPage() {
 
       <div className="amp-detalle-grid" style={s.contentGrid}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          
+
           <Seccion titulo="Información del Amparo" icono={
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
@@ -475,7 +476,7 @@ export default function DetalleAmparoPage() {
             {editando ? (
               <div style={s.grid2}>
                 <Dato label="Quejoso (Solo Lectura)" valor={amp.cliente} T={T} />
-                
+
                 <div>
                   <label style={s.labelInput}>Tipo de amparo</label>
                   <input
@@ -612,7 +613,7 @@ export default function DetalleAmparoPage() {
                     const vencida = !t.completada && t.fecha_vencimiento && t.fecha_vencimiento < new Date().toISOString().split('T')[0]
                     return (
                       <div key={t.id} style={s.tareaCard(t.completada, vencida)}>
-                        <button 
+                        <button
                           onClick={() => toggleTarea(t.id, t.completada)}
                           style={{
                             ...s.tareaCheck(t.completada),
@@ -657,22 +658,14 @@ export default function DetalleAmparoPage() {
       <div className="amp-actions" style={s.actions}>
         {editando ? (
           <>
-            <button 
-              style={s.btnSecundario} 
-              onClick={() => setEditando(false)} 
-              disabled={guardando}
-            >
+            <button style={s.btnSecundario} onClick={() => setEditando(false)} disabled={guardando}>
               Cancelar
             </button>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' as const }}>
               {errorGuardar && (
                 <span style={{ color: T.red, fontSize: 12.5 }}>{errorGuardar}</span>
               )}
-              <button 
-                style={s.btnPrimario} 
-                onClick={manejarGuardar} 
-                disabled={guardando}
-              >
+              <button style={s.btnPrimario} onClick={manejarGuardar} disabled={guardando}>
                 {guardando ? 'Guardando...' : 'Guardar Cambios'}
               </button>
             </div>
@@ -780,19 +773,10 @@ export default function DetalleAmparoPage() {
             )}
 
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 24 }}>
-              <button 
-                type="button" 
-                style={s.btnSecundario} 
-                onClick={() => setMostrarModalTarea(false)} 
-                disabled={creandoTarea}
-              >
+              <button type="button" style={s.btnSecundario} onClick={() => setMostrarModalTarea(false)} disabled={creandoTarea}>
                 Cancelar
               </button>
-              <button 
-                type="submit" 
-                style={s.btnPrimario} 
-                disabled={creandoTarea}
-              >
+              <button type="submit" style={s.btnPrimario} disabled={creandoTarea}>
                 {creandoTarea ? 'Creando...' : 'Crear Tarea'}
               </button>
             </div>
@@ -803,6 +787,21 @@ export default function DetalleAmparoPage() {
   )
 }
 
+// ── Export default con Suspense ───────────────────────────────────────────
+export default function Page() {
+  return (
+    <Suspense fallback={
+      <div style={{ display: 'flex', minHeight: '100vh', alignItems: 'center', justifyContent: 'center', background: '#070b14' }}>
+        <div style={{ width: 24, height: 24, border: '2px solid #d4af37', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+        <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+      </div>
+    }>
+      <DetalleAmparoPage />
+    </Suspense>
+  )
+}
+
+// ── Subcomponentes ────────────────────────────────────────────────────────
 function Seccion({ titulo, icono, T, oscuro, children }: any) {
   return (
     <div style={{
