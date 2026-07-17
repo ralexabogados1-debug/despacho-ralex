@@ -115,8 +115,10 @@ export default function DetalleCausaPenalPage({
 console.log('🚀 Render del componente')
   useEffect(() => {
   console.log('🚀 useEffect ejecutado')
-
+  console.log('id:', id)
+  console.log('causaId:', causaId)
   if (!id || Number.isNaN(causaId)) {
+    console.log('❌ id inválido')
     setError(true)
     setLoading(false)
     return
@@ -134,7 +136,9 @@ console.log('🚀 Render del componente')
       return true
     }
 
-    const fetchData = async () => {
+    console.log('✅ Voy a llamar fetchData')
+
+  const fetchData = async () => {
     console.log('🔵 fetchData iniciado')
 
   if (!navigator.onLine) {
@@ -211,9 +215,9 @@ console.log('🚀 Render del componente')
   } finally {
     setLoading(false)
   }
+      fetchData()
 }
 
-    fetchData()
 
     const alVolverConexion = () => {
       syncConSupabase().finally(fetchData)
