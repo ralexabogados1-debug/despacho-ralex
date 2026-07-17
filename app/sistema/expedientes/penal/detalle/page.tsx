@@ -154,7 +154,7 @@ console.log('🚀 Render del componente')
     }
 
         const { data: causaRaw, error: fetchError } = await supabase
-      .from('expedientes')
+  .from('expedientes')
           .select(`
             id, numero_expediente, caracter_cliente, contraparte, estado, fecha_inicio, descripcion,
             clientes ( nombre_completo ),
@@ -167,8 +167,12 @@ console.log('🚀 Render del componente')
             )
           `)
           .eq('id', causaId)
-      .single()
+  .single()
 
+  console.log("================================")
+console.log("causaRaw:", causaRaw)
+console.log("fetchError:", fetchError)
+console.log("================================")
         console.log('🔵 respuesta de expedientes:', { causaRaw, fetchError })
 
     if (fetchError || !causaRaw) {
@@ -181,6 +185,8 @@ console.log('🚀 Render del componente')
           ? causaRaw.expedientes_penales[0]
           : causaRaw.expedientes_penales
 
+          console.log("✅ Antes de setCausa")
+          console.log(causaRaw)
         setCausa({
           id:                causaRaw.id,
           numero_expediente: causaRaw.numero_expediente,
@@ -203,6 +209,7 @@ console.log('🚀 Render del componente')
             mp: (penalRaw.ministerios_publicos as any)?.nombre_agencia ?? null,
           } : null,
         })
+        console.log("✅ Después de setCausa")
         setEsOffline(false)
       } catch (e) {
     console.log('🔴 CATCH capturó:', e)
@@ -211,8 +218,8 @@ console.log('🚀 Render del componente')
   } finally {
     setLoading(false)
   }
-      fetchData()
 }
+      fetchData()
 
 
     const alVolverConexion = () => {
