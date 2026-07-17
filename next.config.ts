@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+
 const withPWA = require('@ducanh2912/next-pwa').default({
   dest: 'public',
   cacheOnFrontEndNav: true,
@@ -6,17 +7,35 @@ const withPWA = require('@ducanh2912/next-pwa').default({
   reloadOnOnline: true,
   disable: process.env.NODE_ENV === 'development',
 
-  // 🆕 Si una navegación (clic en una causa, por ejemplo) cae a "hard
-  // navigation" por falta de red y esa ruta tampoco está en el cache de
-  // páginas de abajo, el service worker sirve esta página en vez de dejar
-  // que el navegador muestre su pantalla nativa de "sin conexión".
-  // Crea el archivo app/offline/page.tsx con un mensaje simple (ver nota).
+  // SW toma control inmediatamente sin esperar a que se cierren tabs
+  skipWaiting: true,
+  clientsClaim: true,
+
   fallbacks: {
     document: '/offline',
   },
 
   workboxOptions: {
+    // Estos dos son críticos para cold start offline
+    skipWaiting: true,
+    clientsClaim: true,
+
     runtimeCaching: [
+      // ─── 1. RUTA RAÍZ ────────────────────────────────────────────────
+      // StaleWhileRevalidate: sirve desde caché INMEDIATAMENTE,
+      // luego actualiza en segundo plano si hay red.
+      // Antes era NetworkFirst → fallaba en cold start sin internet.
+      {
+        urlPattern: /^https:\/\/despacho-ralex-seven\.vercel\.app\/$/,
+        handler: 'StaleWhileRevalidate',
+        options: {
+          cacheName: 'start-url',
+        },
+      },
+
+      // ─── 2. WASM (sql.js) ────────────────────────────────────────────
+      // CacheFirst: una vez descargado nunca vuelve a la red.
+      // Es el archivo más crítico para que la BD local funcione offline.
       {
         urlPattern: /\.wasm$/,
         handler: 'CacheFirst',
@@ -28,11 +47,11 @@ const withPWA = require('@ducanh2912/next-pwa').default({
           },
         },
       },
-      // 🆕 Páginas (navegaciones): intenta red primero (máx 3s), y si no
-      // hay red, sirve la versión cacheada de esa MISMA ruta si el usuario
-      // ya la visitó antes estando en línea. Antes no existía ninguna
-      // regla para navegaciones, así que next-pwa no cacheaba nada del
-      // "document" y cualquier hard-navigation offline fallaba en seco.
+
+      // ─── 3. NAVEGACIONES (páginas) ───────────────────────────────────
+      // NetworkFirst con timeout corto: intenta red 3s,
+      // si no hay respuesta sirve la página cacheada.
+      // El fallback /offline cubre rutas que nunca se visitaron online.
       {
         urlPattern: ({ request }: any) => request.mode === 'navigate',
         handler: 'NetworkFirst',
@@ -45,15 +64,35 @@ const withPWA = require('@ducanh2912/next-pwa').default({
           },
         },
       },
-      // 🆕 JS y CSS: se cachean automáticamente conforme el usuario navega,
-      // para que los chunks de cada ruta estén disponibles offline después
-      // de la primera visita.
+
+      // ─── 4. JS Y CSS ─────────────────────────────────────────────────
+      // StaleWhileRevalidate: sirve desde caché al instante,
+      // actualiza en segundo plano. Cubre todos los chunks de Next.js.
       {
         urlPattern: ({ request }: any) =>
           request.destination === 'script' || request.destination === 'style',
         handler: 'StaleWhileRevalidate',
         options: {
           cacheName: 'static-resources',
+          expiration: {
+            maxEntries: 100,
+            maxAgeSeconds: 60 * 60 * 24 * 7,
+          },
+        },
+      },
+
+      // ─── 5. IMÁGENES Y FUENTES ───────────────────────────────────────
+      // CacheFirst: activos que nunca cambian entre visitas.
+      {
+        urlPattern: ({ request }: any) =>
+          request.destination === 'image' || request.destination === 'font',
+        handler: 'CacheFirst',
+        options: {
+          cacheName: 'assets-cache',
+          expiration: {
+            maxEntries: 50,
+            maxAgeSeconds: 60 * 60 * 24 * 30,
+          },
         },
       },
     ],
