@@ -10,19 +10,30 @@ export function useCatalogosLocal() {
   const [syncing, setSyncing]         = useState(false)
 
   useEffect(() => {
-    setIsOnline(navigator.onLine)
-    if (navigator.onLine) doSync()
-    else cargar()
+  setIsOnline(navigator.onLine)
+  // ❌ quita: setMontado(true)
+  if (navigator.onLine) doSync()
+  else cargar()
 
-    const on  = () => { setIsOnline(true); doSync() }
-    const off = () => setIsOnline(false)
-    window.addEventListener('online',  on)
-    window.addEventListener('offline', off)
-    return () => {
-      window.removeEventListener('online',  on)
-      window.removeEventListener('offline', off)
-    }
-  }, [])
+  let offlineTimer: ReturnType<typeof setTimeout> | null = null
+
+  const on = () => {
+    if (offlineTimer) { clearTimeout(offlineTimer); offlineTimer = null }
+    setIsOnline(true)
+    doSync()
+  }
+  const off = () => {
+    offlineTimer = setTimeout(() => setIsOnline(false), 3000)
+  }
+
+  window.addEventListener('online',  on)
+  window.addEventListener('offline', off)
+  return () => {
+    window.removeEventListener('online',  on)
+    window.removeEventListener('offline', off)
+    if (offlineTimer) clearTimeout(offlineTimer)
+  }
+}, [])
 
   async function cargar() {
     const { clientes, jueces, ministerios } = await queryCatalogosLocal()
