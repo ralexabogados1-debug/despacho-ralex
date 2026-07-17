@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { useExpedientes } from '@/hooks/useExpedientes'
 import { useTema } from '@/app/sistema/layout' // Ajusta la ruta si es necesario
 import {
@@ -403,7 +404,9 @@ export default function ClienteAmparos({
                     return (
                       <tr key={amp.id} className="amp-tr">
                         <td style={s.td}>
-                          <span style={{ fontWeight: 600, color: T.textPrimary, fontSize: 13 }}>{amp.numero_expediente}</span>
+                          <Link href={`/sistema/expedientes/amparo/detalle?id=${amp.id}`} style={{ fontWeight: 600, color: T.textPrimary, fontSize: 13, textDecoration: 'none' }}>
+                            {amp.numero_expediente}
+                          </Link>
                           <div style={s.sub}>{da.tipo_amparo || 'Amparo Indirecto'}</div>
                         </td>
                         <td style={{ ...s.td, color: T.textPrimary, fontSize: 13 }}>{amp.clientes?.nombre_completo ?? '—'}</td>
@@ -463,7 +466,7 @@ export default function ClienteAmparos({
                 const venc = pt && pt < hoy
                 const act  = activo(amp.estado)
                 return (
-                  <a key={amp.id} href={`/sistema/expedientes/amparo/detalle?id=${amp.id}`} className="amp-row-link" style={s.rowLink}>
+                  <Link key={amp.id} href={`/sistema/expedientes/amparo/detalle?id=${amp.id}`} className="amp-row-link" style={s.rowLink}>
                     <div style={s.avatar}>
                       <span style={{ fontSize: 16, color: T.gold, fontWeight: 'bold' }}>AI</span>
                     </div>
@@ -485,7 +488,7 @@ export default function ClienteAmparos({
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ color: T.textFaint, flexShrink: 0 }}>
                       <path d="m9 18 6-6-6-6"/>
                     </svg>
-                  </a>
+                  </Link>
                 )
               })}
             </div>
@@ -1006,7 +1009,7 @@ const getStyles = (T: typeof T_DARK, oscuro: boolean) => ({
     borderBottomWidth: '1px',
     borderBottomStyle: 'solid',
     borderBottomColor: T.border,
-  } as React.CSSProperties, // 👈 Solucionado aquí
+  } as React.CSSProperties,
   td: {
     padding: '10px 14px',
     borderBottomWidth: '1px',
@@ -1063,7 +1066,7 @@ const getStyles = (T: typeof T_DARK, oscuro: boolean) => ({
     flexDirection: 'column' as const,
     overflow: 'hidden',
     boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)',
-  } as React.CSSProperties, // 👈 Solucionado aquí también
+  } as React.CSSProperties,
   modalHeader: {
     display: 'flex',
     justifyContent: 'space-between',

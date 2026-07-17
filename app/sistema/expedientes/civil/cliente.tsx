@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { useTema } from '@/app/sistema/layout'
 import { useExpedientes } from '@/hooks/useExpedientes'
 import {
@@ -434,9 +435,9 @@ export default function ClienteCivilFamiliar({
                     return (
                       <tr key={exp.id} className="civ-row">
                         <td style={s.td}>
-                          <a href={`/sistema/expedientes/civil/detalle?id=${exp.id}`} style={{ fontWeight: 600, color: T.textPrimary, fontSize: 13, textDecoration: 'none' }}>
+                          <Link href={`/sistema/expedientes/civil/detalle?id=${exp.id}`} style={{ fontWeight: 600, color: T.textPrimary, fontSize: 13, textDecoration: 'none' }}>
                             {exp.numero_expediente}
-                          </a>
+                          </Link>
                           <div style={s.sub}>{exp.ciudad || 'Huejutla'}</div>
                         </td>
                         <td style={{ ...s.td, color: T.textPrimary, fontSize: 13 }}>{exp.clientes?.nombre_completo ?? '—'}</td>
@@ -501,7 +502,7 @@ export default function ClienteCivilFamiliar({
                 const venc = pt && pt < hoy
                 const act  = esActivo(exp.estado)
                 return (
-                  <a key={exp.id} href={`/sistema/expedientes/civil/detalle?id=${exp.id}`} className="civ-row-link" style={s.rowLink}>
+                  <Link key={exp.id} href={`/sistema/expedientes/civil/detalle?id=${exp.id}`} className="civ-row-link" style={s.rowLink}>
                     <div style={{ ...s.avatar, background: T.accentAlpha, color: T.accent }}>
                       <span style={{ fontSize: 16, fontWeight: 'bold' }}>CF</span>
                     </div>
@@ -524,7 +525,7 @@ export default function ClienteCivilFamiliar({
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ color: T.textFaint, flexShrink: 0 }}>
                       <path d="m9 18 6-6-6-6"/>
                     </svg>
-                  </a>
+                  </Link>
                 )
               })}
             </div>
