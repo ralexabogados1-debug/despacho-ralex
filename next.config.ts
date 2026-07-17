@@ -8,17 +8,25 @@ const withPWA = require('@ducanh2912/next-pwa').default({
   disable: process.env.NODE_ENV === 'development',
 
   // SW toma control inmediatamente sin esperar a que se cierren tabs
+  workboxOptions: {
   skipWaiting: true,
   clientsClaim: true,
 
-  fallbacks: {
-    document: '/offline',
-  },
+  // 🆕 Precachear todas las rutas al instalar el SW
+  additionalManifestEntries: [
+    { url: '/sistema/dashboard',                  revision: '1' },
+    { url: '/sistema/expedientes/civil',          revision: '1' },
+    { url: '/sistema/expedientes/penal',          revision: '1' },
+    { url: '/sistema/expedientes/amparo',         revision: '1' },
+    { url: '/sistema/tareas',                     revision: '1' },
+    { url: '/sistema/agenda',                     revision: '1' },
+    { url: '/sistema/perfil',                     revision: '1' },
+    { url: '/sistema/usuarios',                   revision: '1' },
+    { url: '/login',                              revision: '1' },
+    { url: '/offline',                            revision: '1' },
+  ],
 
-  workboxOptions: {
-    // Estos dos son críticos para cold start offline
-    skipWaiting: true,
-    clientsClaim: true,
+
 
     runtimeCaching: [
       // ─── 1. RUTA RAÍZ ────────────────────────────────────────────────────
