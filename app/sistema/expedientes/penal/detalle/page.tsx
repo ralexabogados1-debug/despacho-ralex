@@ -70,9 +70,17 @@ export default function DetalleCausaPenalPage({
   const T = oscuro ? T_DARK : T_LIGHT
 
   const router = useRouter()
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+
+  // FIX 2: el cliente de supabase se creaba en cada render, lo que provocaba
+  // que el useEffect de abajo se re-disparara constantemente (su dependencia
+  // "supabase" nunca era === a la anterior). Con useMemo se crea una sola vez.
+  const supabase = useMemo(
+    () =>
+      createBrowserClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      ),
+    []
   )
 
   const [causa, setCausa] = useState<any>(null)
@@ -108,6 +116,7 @@ export default function DetalleCausaPenalPage({
   useEffect(() => {
     if (!id || Number.isNaN(causaId)) {
       setError(true)
+      setLoading(false) // FIX 1: sin esto el spinner se quedaba pegado para siempre
       return
     }
 
