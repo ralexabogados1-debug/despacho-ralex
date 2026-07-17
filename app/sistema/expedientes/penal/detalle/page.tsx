@@ -112,8 +112,9 @@ export default function DetalleCausaPenalPage({
   const [nuevaTareaFecha, setNuevaTareaFecha] = useState('')
   const [creandoTarea, setCreandoTarea] = useState(false)
   const [errorTarea, setErrorTarea] = useState<string | null>(null)
-
+console.log('🚀 Render del componente')
   useEffect(() => {
+     console.log('🚀 useEffect ejecutado')
     if (!id || Number.isNaN(causaId)) {
       setError(true)
       setLoading(false) // FIX 1: sin esto el spinner se quedaba pegado para siempre
