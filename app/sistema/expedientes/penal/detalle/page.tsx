@@ -133,21 +133,26 @@ export default function DetalleCausaPenalPage({
     }
 
     const fetchData = async () => {
-      if (!navigator.onLine) {
-        await cargarDesdeLocal()
-        setLoading(false)
-        return
-      }
+  console.log('🔵 fetchData iniciado, causaId:', causaId, 'online:', navigator.onLine)
 
-      try {
-        const { data: { user } } = await supabase.auth.getUser()
-        if (!user) {
-          router.push('/login')
-          return
-        }
+  if (!navigator.onLine) {
+    await cargarDesdeLocal()
+    setLoading(false)
+    return
+  }
+
+        try {
+    const { data: { user } } = await supabase.auth.getUser()
+    console.log('🔵 usuario obtenido:', user?.id, user?.email)
+
+    if (!user) {
+      console.log('🔴 no hay usuario, redirigiendo a login')
+      router.push('/login')
+      return
+    }
 
         const { data: causaRaw, error: fetchError } = await supabase
-          .from('expedientes')
+      .from('expedientes')
           .select(`
             id, numero_expediente, caracter_cliente, contraparte, estado, fecha_inicio, descripcion,
             clientes ( nombre_completo ),
@@ -160,14 +165,16 @@ export default function DetalleCausaPenalPage({
             )
           `)
           .eq('id', causaId)
-          .single()
+      .single()
 
-        if (fetchError || !causaRaw) {
-          const cayoOffline = await cargarDesdeLocal()
-          if (!cayoOffline) setError(true)
-          return
-        }
+        console.log('🔵 respuesta de expedientes:', { causaRaw, fetchError })
 
+    if (fetchError || !causaRaw) {
+      console.log('🔴 cayendo a offline por fetchError o causaRaw vacío')
+      const cayoOffline = await cargarDesdeLocal()
+      if (!cayoOffline) setError(true)
+      return
+    }
         const penalRaw = Array.isArray(causaRaw.expedientes_penales)
           ? causaRaw.expedientes_penales[0]
           : causaRaw.expedientes_penales
@@ -196,12 +203,13 @@ export default function DetalleCausaPenalPage({
         })
         setEsOffline(false)
       } catch (e) {
-        const cayoOffline = await cargarDesdeLocal()
-        if (!cayoOffline) setError(true)
-      } finally {
-        setLoading(false)
-      }
-    }
+    console.log('🔴 CATCH capturó:', e)
+    const cayoOffline = await cargarDesdeLocal()
+    if (!cayoOffline) setError(true)
+  } finally {
+    setLoading(false)
+  }
+}
 
     fetchData()
 
