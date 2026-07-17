@@ -24,6 +24,17 @@ const withPWA = require('@ducanh2912/next-pwa').default({
 
 const nextConfig: NextConfig = {
   turbopack: {},
+  async headers() {
+    return [
+      {
+        source: '/sql-wasm.wasm',
+        headers: [
+          { key: 'Content-Type', value: 'application/wasm' },
+          { key: 'Cache-Control', value: 'public, max-age=31536000, immutable' },
+        ],
+      },
+    ];
+  },
 };
 
-export default withPWA(nextConfig);
+export default withPWA(nextConfig);*
