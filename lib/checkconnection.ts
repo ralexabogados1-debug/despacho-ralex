@@ -12,10 +12,35 @@
  * hayConexionReal() resuelve esto haciendo un HEAD request corto y con
  * timeout contra el propio backend de Supabase antes de decidir si se
  * intenta la llamada real.
+ *
+ * 🛡️ BLINDAJE: se usa un Promise.race EXTERNO además del AbortController
+ * interno del fetch. Esto es necesario porque en algunos entornos (Service
+ * Workers de PWA interceptando el fetch, ciertos navegadores móviles) el
+ * abort() del AbortController no siempre logra rechazar la promesa a
+ * tiempo. El Promise.race externo garantiza que esta función SIEMPRE
+ * resuelve en un máximo de timeoutMs, sin importar qué pase con el fetch.
  */
 
 let ultimaVerificacion: { resultado: boolean; timestamp: number } | null = null
 const CACHE_MS = 8000 // evita pings duplicados si varios componentes montan casi al mismo tiempo
+
+async function intentarPing(timeoutMs: number): Promise<boolean> {
+  try {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), timeoutMs)
+
+    await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/`, {
+      method: 'HEAD',
+      cache: 'no-store',
+      signal: controller.signal,
+    })
+
+    clearTimeout(timeout)
+    return true
+  } catch {
+    return false
+  }
+}
 
 export async function hayConexionReal(timeoutMs = 2500): Promise<boolean> {
   // Filtro rápido: si el dispositivo ni siquiera reporta interfaz activa,
@@ -34,21 +59,15 @@ export async function hayConexionReal(timeoutMs = 2500): Promise<boolean> {
     return ultimaVerificacion.resultado
   }
 
-  try {
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), timeoutMs)
+  // 🛡️ Promise.race EXTERNO: garantiza resolución en timeoutMs + 300ms
+  // sin importar si el fetch/AbortController interno se cuelga.
+  const resultado = await Promise.race([
+    intentarPing(timeoutMs),
+    new Promise<boolean>((resolve) =>
+      setTimeout(() => resolve(false), timeoutMs + 300)
+    ),
+  ])
 
-    await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/`, {
-      method: 'HEAD',
-      cache: 'no-store',
-      signal: controller.signal,
-    })
-
-    clearTimeout(timeout)
-    ultimaVerificacion = { resultado: true, timestamp: Date.now() }
-    return true
-  } catch {
-    ultimaVerificacion = { resultado: false, timestamp: Date.now() }
-    return false
-  }
+  ultimaVerificacion = { resultado, timestamp: Date.now() }
+  return resultado
 }
