@@ -1,6 +1,8 @@
 'use client'
 
-import { useEffect, useState, useMemo } from 'react'
+export const dynamic = 'force-dynamic'
+
+import { useEffect, useState, useMemo, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
@@ -56,7 +58,8 @@ const T_LIGHT = {
   textAccent:  '#1e3a8a',
 }
 
-export default function DetalleCausaPenalPage() {
+// ── Componente interno (usa useSearchParams) ──────────────────────────────
+function DetalleCausaPenalPage() {
   const searchParams = useSearchParams()
 
   const id = searchParams.get('id')
@@ -858,6 +861,20 @@ export default function DetalleCausaPenalPage() {
         </div>
       )}
     </div>
+  )
+}
+
+// ── Export default con Suspense ───────────────────────────────────────────
+export default function Page() {
+  return (
+    <Suspense fallback={
+      <div style={{ display: 'flex', minHeight: '100vh', alignItems: 'center', justifyContent: 'center', background: '#070b14' }}>
+        <div style={{ width: 24, height: 24, border: '2px solid #b3434f', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+        <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+      </div>
+    }>
+      <DetalleCausaPenalPage />
+    </Suspense>
   )
 }
 

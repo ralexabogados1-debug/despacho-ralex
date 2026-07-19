@@ -4,7 +4,7 @@ export const dynamic = 'force-dynamic'
 
 import { useState, useEffect, useMemo, Suspense } from 'react'
 import Link from 'next/link'
-import { useRouter, useSearchParams, notFound } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
 import { useTema } from '@/app/sistema/layout'
 import {
@@ -61,15 +61,17 @@ function DetalleAmparoPage() {
   const id = searchParams.get('id')
   const amparoId = Number(id)
 
-  console.log('🔍 ID recibido:', id)
-  console.log('🔍 amparoId:', amparoId)
   const { oscuro } = useTema()
   const T = oscuro ? T_DARK : T_LIGHT
 
   const router = useRouter()
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  const supabase = useMemo(
+    () =>
+      createBrowserClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      ),
+    []
   )
 
   const [amp, setAmp] = useState<any>(null)
@@ -102,7 +104,8 @@ function DetalleAmparoPage() {
 
   useEffect(() => {
     if (!id || Number.isNaN(amparoId)) {
-      notFound()
+      setError(true)
+      setLoading(false)
       return
     }
 
@@ -120,8 +123,15 @@ function DetalleAmparoPage() {
 
     const fetchData = async () => {
       if (!navigator.onLine) {
-        await cargarDesdeLocal()
-        setLoading(false)
+        try {
+          const cargoOffline = await cargarDesdeLocal()
+          if (!cargoOffline) setError(true)
+        } catch (e) {
+          console.warn('Fallo cargando detalle Amparo desde SQLite local:', e)
+          setError(true)
+        } finally {
+          setLoading(false)
+        }
         return
       }
 
@@ -148,7 +158,7 @@ function DetalleAmparoPage() {
 
         if (fetchError || !ampRaw) {
           const cayoOffline = await cargarDesdeLocal()
-          if (!cayoOffline) notFound()
+          if (!cayoOffline) setError(true)
           return
         }
 
@@ -391,7 +401,14 @@ function DetalleAmparoPage() {
   }
 
   if (error || !amp) {
-    notFound()
+    return (
+      <div style={{ ...s.root, justifyContent: 'center', alignItems: 'center', textAlign: 'center' }}>
+        <h1 style={{ color: T.textPrimary }}>Expediente de Amparo no encontrado</h1>
+        <Link href="/sistema/expedientes/amparo" style={s.breadcrumb}>
+          Volver a Expedientes de Amparo
+        </Link>
+      </div>
+    )
   }
 
   return (

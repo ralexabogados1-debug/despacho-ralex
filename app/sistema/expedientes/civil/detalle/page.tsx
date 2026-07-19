@@ -1,12 +1,12 @@
 'use client'
 
-
 export const dynamic = 'force-dynamic'
-import { useEffect, useState, useMemo} from 'react'
-import { useRouter } from 'next/navigation'
+
+import { useEffect, useState, useMemo, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { createBrowserClient } from '@supabase/ssr'
-import { useTema } from '@/app/sistema/layout' 
+import { useTema } from '@/app/sistema/layout'
 import {
   queryDetalleCivilLocal,
   eliminarExpedienteLocal,
@@ -60,14 +60,8 @@ const T_LIGHT = {
   textAccent:   '#1e40af',
 }
 
-const supabase = createBrowserClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
-
-import { useSearchParams } from 'next/navigation'
-
-export default function DetalleExpedienteCivilPage() {
+// ── Componente interno (usa useSearchParams) ──────────────────────────────
+function DetalleExpedienteCivilPage() {
   const searchParams = useSearchParams()
   const rawId = searchParams.get('id')
   const expedienteId = Number(rawId)
@@ -75,6 +69,15 @@ export default function DetalleExpedienteCivilPage() {
   const { oscuro } = useTema()
   const T = oscuro ? T_DARK : T_LIGHT
   const router = useRouter()
+
+  const supabase = useMemo(
+    () =>
+      createBrowserClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      ),
+    []
+  )
 
   const [exp, setExp] = useState<any>(null)
   const [loading, setLoading] = useState(true)
@@ -125,8 +128,15 @@ export default function DetalleExpedienteCivilPage() {
 
     const fetchData = async () => {
       if (!navigator.onLine) {
-        await cargarDesdeLocal()
-        setLoading(false)
+        try {
+          const cargoOffline = await cargarDesdeLocal()
+          if (!cargoOffline) setError(true)
+        } catch (e) {
+          console.warn('Fallo cargando detalle Civil desde SQLite local:', e)
+          setError(true)
+        } finally {
+          setLoading(false)
+        }
         return
       }
 
@@ -186,7 +196,7 @@ export default function DetalleExpedienteCivilPage() {
     }
     window.addEventListener('online', alVolverConexion)
     return () => window.removeEventListener('online', alVolverConexion)
-  }, [expedienteId, rawId, router])
+  }, [expedienteId, rawId, router, supabase])
 
   async function manejarEliminar() {
     setErrorEliminar(null)
@@ -370,7 +380,6 @@ export default function DetalleExpedienteCivilPage() {
     return (
       <div style={{ ...s.root, justifyContent: 'center', alignItems: 'center', textAlign: 'center' }}>
         <h1 style={{ color: T.textPrimary }}>Expediente Civil no encontrado</h1>
-        <p style={{ color: T.textMuted, fontSize: 14, marginBottom: 16 }}>ID recibido: "{rawId || 'ninguno'}"</p>
         <Link href="/sistema/expedientes/civil" style={s.breadcrumb}>
           Volver a Expedientes Civiles
         </Link>
@@ -389,6 +398,7 @@ export default function DetalleExpedienteCivilPage() {
         .civ-detalle-grid { grid-template-columns: 1fr 360px; }
         @media (max-width: 900px) {
           .civ-detalle-grid { grid-template-columns: 1fr !important; }
+          .civ-detalle-root { max-width: 100% !important; padding: 16px !important; }
         }
         @media (max-width: 640px) {
           .civ-hero { flex-direction: column !important; align-items: stretch !important; }
@@ -410,7 +420,7 @@ export default function DetalleExpedienteCivilPage() {
         {esOffline && (
           <span style={s.offlineBadge}>
             <span style={{ width: 6, height: 6, borderRadius: '50%', background: T.amber, flexShrink: 0 }} />
-            Modo local (sin conexión)
+            Mostrando datos guardados sin conexión
           </span>
         )}
       </div>
@@ -445,6 +455,12 @@ export default function DetalleExpedienteCivilPage() {
                 </svg>
                 <span style={{ fontSize: 13, color: T.textMuted }}>{exp.cliente || 'Sin cliente'}</span>
               </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.textMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>
+                </svg>
+                <span style={{ fontSize: 13, color: T.textMuted }}>{exp.fecha_inicio || '—'}</span>
+              </div>
             </div>
           )}
         </div>
@@ -465,7 +481,7 @@ export default function DetalleExpedienteCivilPage() {
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
             </svg>
-          } T={T}>
+          } T={T} oscuro={oscuro}>
             {editando ? (
               <div style={s.grid2}>
                 <Dato label="Cliente (Solo Lectura)" valor={exp.cliente} T={T} />
@@ -541,7 +557,7 @@ export default function DetalleExpedienteCivilPage() {
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M12 3v18M3 6l9-3 9 3M6 12l-3 6h6l-3-6zm12 0l-3 6h6l-3-6z"/>
             </svg>
-          } T={T}>
+          } T={T} oscuro={oscuro}>
             <div style={s.grid2}>
               <Dato label="Juzgado" valor={exp.juzgado ? `${exp.juzgado.nombre} (${exp.juzgado.ciudad})` : null} T={T} />
             </div>
@@ -552,7 +568,7 @@ export default function DetalleExpedienteCivilPage() {
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
               </svg>
-            } T={T}>
+            } T={T} oscuro={oscuro}>
               {editando ? (
                 <div>
                   <label style={s.labelInput}>Descripción / Resumen</label>
@@ -578,7 +594,7 @@ export default function DetalleExpedienteCivilPage() {
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <rect x="3" y="5" width="16" height="16" rx="2"/><path d="m9 12 2 2 4-4"/>
             </svg>
-          } T={T}>
+          } T={T} oscuro={oscuro}>
             {totalTareas === 0 ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <p style={{ color: T.textFaint, fontSize: 13, margin: 0 }}>Sin tareas pendientes.</p>
@@ -670,8 +686,8 @@ export default function DetalleExpedienteCivilPage() {
               </button>
 
               <button style={s.btnPrimario} onClick={() => setMostrarModalTarea(true)}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 5v14M5 12h14"/>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M5 12h14M12 5v14"/>
                 </svg>
                 Agregar Tarea
               </button>
@@ -765,8 +781,22 @@ export default function DetalleExpedienteCivilPage() {
   )
 }
 
+// ── Export default con Suspense ───────────────────────────────────────────
+export default function Page() {
+  return (
+    <Suspense fallback={
+      <div style={{ display: 'flex', minHeight: '100vh', alignItems: 'center', justifyContent: 'center', background: '#030712' }}>
+        <div style={{ width: 24, height: 24, border: '2px solid #3b82f6', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+        <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+      </div>
+    }>
+      <DetalleExpedienteCivilPage />
+    </Suspense>
+  )
+}
+
 // ─── SUBCOMPONENTES ──────────────────────────────────────────────────────────
-function Seccion({ titulo, icono, T, children }: { titulo: string; icono: React.ReactNode; T: typeof T_DARK; children: React.ReactNode }) {
+function Seccion({ titulo, icono, T, oscuro, children }: { titulo: string; icono: React.ReactNode; T: typeof T_DARK; oscuro: boolean; children: React.ReactNode }) {
   return (
     <div style={{
       background: T.surface,
@@ -776,9 +806,9 @@ function Seccion({ titulo, icono, T, children }: { titulo: string; icono: React.
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
         <span style={{ color: T.accent, display: 'flex', alignItems: 'center' }}>{icono}</span>
-        <h2 style={{ fontSize: 14, fontWeight: 600, color: T.textMuted, margin: 0 }}>{titulo}</h2>
+        <h2 style={{ fontSize: 14, fontWeight: 600, color: T.textMuted, margin: 0, letterSpacing: '-0.1px' }}>{titulo}</h2>
       </div>
-      <div>{children}</div>
+      <div style={{ padding: '0 4px' }}>{children}</div>
     </div>
   )
 }
@@ -786,7 +816,7 @@ function Seccion({ titulo, icono, T, children }: { titulo: string; icono: React.
 function Dato({ label, valor, T }: { label: string; valor?: string | null; T: typeof T_DARK }) {
   return (
     <div>
-      <div style={{ fontSize: 11, fontWeight: 600, color: T.textFaint, textTransform: 'uppercase', marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 11, fontWeight: 600, color: T.textFaint, letterSpacing: '0.04em', textTransform: 'uppercase', marginBottom: 4 }}>{label}</div>
       <div style={{ fontSize: 14, fontWeight: 500, color: valor ? T.textPrimary : T.textFaint }}>{valor || '—'}</div>
     </div>
   )
@@ -799,7 +829,8 @@ function getStyles(T: typeof T_DARK, oscuro: boolean) {
       width: '100%',
       maxWidth: 1100,
       margin: '0 auto',
-      padding: '24px',
+      padding: 'clamp(20px, 4vw, 40px) clamp(20px, 5vw, 40px)',
+      boxSizing: 'border-box' as const,
       display: 'flex',
       flexDirection: 'column' as const,
       gap: 24,
@@ -812,18 +843,21 @@ function getStyles(T: typeof T_DARK, oscuro: boolean) {
       color: T.textAccent,
       textDecoration: 'none',
       fontWeight: 500,
-    },
+      width: 'fit-content',
+      transition: 'color 0.2s',
+    } as React.CSSProperties,
     offlineBadge: {
       display: 'inline-flex',
       alignItems: 'center',
       gap: 6,
       fontSize: 11.5,
+      fontWeight: 600,
       color: T.amber,
       background: oscuro ? 'rgba(251,191,36,0.08)' : 'rgba(217,119,6,0.08)',
       border: `0.5px solid ${T.amber}40`,
       borderRadius: 20,
       padding: '5px 12px',
-    },
+    } as React.CSSProperties,
     hero: {
       display: 'flex',
       justifyContent: 'space-between',
@@ -834,41 +868,125 @@ function getStyles(T: typeof T_DARK, oscuro: boolean) {
       border: `0.5px solid ${T.border}`,
       borderRadius: 14,
       padding: '24px',
-    },
+    } as React.CSSProperties,
     eyebrow: {
       display: 'flex',
       alignItems: 'center',
       gap: 8,
       fontSize: 11.5,
+      fontWeight: 600,
       color: T.accent,
+      letterSpacing: '0.06em',
       textTransform: 'uppercase' as const,
       marginBottom: 8,
-    },
-    dot: { width: 6, height: 6, borderRadius: '50%', background: T.accent },
-    titulo: { fontSize: 'clamp(24px, 5vw, 32px)', fontWeight: 700, color: T.textPrimary, margin: 0 },
-    badge: { display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, padding: '8px 16px', borderRadius: 40, border: '0.5px solid', flexShrink: 0 },
-    contentGrid: { display: 'grid', gap: 20 },
-    grid2: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 18 },
-    progresoBar: { position: 'relative' as const, height: 8, background: oscuro ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)', borderRadius: 4, overflow: 'hidden', marginBottom: 4 },
-    progresoFill: (pct: number) => ({ position: 'absolute' as const, left: 0, top: 0, height: '100%', width: `${pct}%`, background: T.accent, borderRadius: 4, transition: 'width 0.4s ease' }),
-    progresoLabel: { fontSize: 11.5, color: T.textFaint },
-    tareaCard: (completada: boolean, vencida: boolean) => ({
-      display: 'flex', gap: 12, alignItems: 'flex-start', padding: '12px 14px', borderRadius: 10,
-      background: completada ? (oscuro ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)') : vencida ? T.redAlpha : T.surfaceHover,
-      border: `0.5px solid ${T.border}`,
+    } as React.CSSProperties,
+    dot: { width: 6, height: 6, borderRadius: '50%', background: T.accent, flexShrink: 0 },
+    titulo: {
+      fontSize: 'clamp(24px, 5vw, 32px)',
+      fontWeight: 700,
+      color: T.textPrimary,
+      margin: 0,
+      letterSpacing: '-0.5px',
+      lineHeight: 1.1,
+    } as React.CSSProperties,
+    badge: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 8,
+      fontSize: 12.5,
+      fontWeight: 600,
+      padding: '8px 16px',
+      borderRadius: 40,
+      border: '0.5px solid',
+      flexShrink: 0,
+    } as React.CSSProperties,
+    contentGrid: { display: 'grid', gap: 20, alignItems: 'start' } as React.CSSProperties,
+    grid2: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 18 } as React.CSSProperties,
+    progresoBar: {
+      position: 'relative' as const,
+      height: 8,
+      background: oscuro ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)',
+      borderRadius: 4,
+      overflow: 'hidden',
+      marginBottom: 4,
+    } as React.CSSProperties,
+    progresoFill: (pct: number) => ({
+      position: 'absolute' as const,
+      left: 0,
+      top: 0,
+      height: '100%',
+      width: `${pct}%`,
+      background: T.accent,
+      borderRadius: 4,
+      transition: 'width 0.4s ease',
     }),
-    tareaCheck: (completada: boolean) => ({ width: 22, height: 22, borderRadius: '50%', border: `1.5px solid ${completada ? T.green : T.border}`, background: completada ? T.greenAlpha : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: T.green, marginTop: 1 }),
-    actions: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' as const, marginTop: 8 },
-    btnPrimario: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px 20px', background: T.accent, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13.5, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' as const },
-    btnSecundario: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px 20px', background: 'transparent', color: T.textMuted, border: `0.5px solid ${T.border}`, borderRadius: 8, fontSize: 13.5, cursor: 'pointer', whiteSpace: 'nowrap' as const },
-    btnPeligro: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px 20px', background: T.redAlpha, color: T.red, border: `0.5px solid ${T.red}40`, borderRadius: 8, fontSize: 13.5, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' as const },
-    btnPeligroSolido: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px 20px', background: T.red, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13.5, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' as const },
-    overlay: { position: 'fixed' as const, inset: 0, background: oscuro ? 'rgba(6,10,18,0.8)' : 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '12px', zIndex: 300 },
-    modalConfirm: { background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14, padding: '24px', width: '100%', maxWidth: 380, boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)' },
-    modalConfirmIcon: { width: 44, height: 44, borderRadius: '50%', background: T.redAlpha, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 14 },
-    modalConfirmTitulo: { fontSize: 16, fontWeight: 700, color: T.textPrimary, margin: '0 0 8px' },
-    modalConfirmTexto: { fontSize: 13.5, color: T.textMuted, lineHeight: 1.6, margin: 0 },
-    input: { width: '100%', padding: '10px 14px', background: T.surfaceHover, border: `1px solid ${T.border}`, borderRadius: 8, color: T.textPrimary, fontSize: 13.5, outline: 'none', boxSizing: 'border-box' as const, fontFamily: 'inherit' },
-    labelInput: { display: 'block', fontSize: 11, fontWeight: 600, color: T.textFaint, letterSpacing: '0.04em', textTransform: 'uppercase' as const, marginBottom: 6 },
+    progresoLabel: { fontSize: 11.5, color: T.textFaint, fontWeight: 500 } as React.CSSProperties,
+    tareaCard: (completada: boolean, vencida: boolean) => ({
+      display: 'flex',
+      gap: 12,
+      alignItems: 'flex-start',
+      padding: '12px 14px',
+      background: completada
+        ? (oscuro ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)')
+        : vencida
+          ? (oscuro ? 'rgba(179,67,79,0.06)' : 'rgba(220,38,38,0.06)')
+          : T.surfaceHover,
+      border: `0.5px solid ${vencida ? (oscuro ? 'rgba(179,67,79,0.25)' : 'rgba(220,38,38,0.25)') : T.border}`,
+      borderRadius: 10,
+      transition: 'background 0.2s',
+    }),
+    tareaCheck: (completada: boolean) => ({
+      width: 22,
+      height: 22,
+      borderRadius: '50%',
+      border: `1.5px solid ${completada ? T.green : T.border}`,
+      background: completada ? T.greenAlpha : 'transparent',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      flexShrink: 0,
+      color: T.green,
+      marginTop: 1,
+    }),
+    actions: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' as const, marginTop: 8 } as React.CSSProperties,
+    btnPrimario: {
+      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px 20px',
+      background: T.accent, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13.5, fontWeight: 600,
+      cursor: 'pointer', whiteSpace: 'nowrap' as const, transition: 'background 0.2s, transform 0.1s',
+    } as React.CSSProperties,
+    btnSecundario: {
+      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px 20px',
+      background: 'transparent', color: T.textMuted, border: `0.5px solid ${T.border}`, borderRadius: 8, fontSize: 13.5, fontWeight: 500,
+      cursor: 'pointer', whiteSpace: 'nowrap' as const, transition: 'background 0.2s',
+    } as React.CSSProperties,
+    btnPeligro: {
+      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px 20px',
+      background: T.redAlpha, color: T.red, border: `0.5px solid ${T.red}40`, borderRadius: 8, fontSize: 13.5, fontWeight: 600,
+      cursor: 'pointer', whiteSpace: 'nowrap' as const, transition: 'background 0.2s',
+    } as React.CSSProperties,
+    btnPeligroSolido: {
+      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px 20px',
+      background: T.red, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13.5, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' as const,
+    } as React.CSSProperties,
+    overlay: {
+      position: 'fixed' as const, inset: 0, background: oscuro ? 'rgba(6,10,18,0.8)' : 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '12px', zIndex: 300,
+    } as React.CSSProperties,
+    modalConfirm: {
+      background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14, padding: '24px', width: '100%', maxWidth: 380,
+      boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)',
+    } as React.CSSProperties,
+    modalConfirmIcon: {
+      width: 44, height: 44, borderRadius: '50%', background: T.redAlpha, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 14,
+    } as React.CSSProperties,
+    modalConfirmTitulo: { fontSize: 16, fontWeight: 700, color: T.textPrimary, margin: '0 0 8px' } as React.CSSProperties,
+    modalConfirmTexto: { fontSize: 13.5, color: T.textMuted, lineHeight: 1.6, margin: 0 } as React.CSSProperties,
+    input: {
+      width: '100%', padding: '10px 14px', background: T.surfaceHover, border: `1px solid ${T.border}`, borderRadius: 8,
+      color: T.textPrimary, fontSize: 13.5, outline: 'none', transition: 'border-color 0.2s', boxSizing: 'border-box' as const, fontFamily: 'inherit',
+    } as React.CSSProperties,
+    labelInput: {
+      display: 'block', fontSize: 11, fontWeight: 600, color: T.textFaint, letterSpacing: '0.04em', textTransform: 'uppercase' as const, marginBottom: 6,
+    } as React.CSSProperties,
   }
 }
