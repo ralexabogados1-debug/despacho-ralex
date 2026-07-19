@@ -91,31 +91,31 @@ async function cargarDatosLocales() {
     SELECT ea.*, e.cliente_id, e.numero_expediente 
   FROM expedientes_amparo ea
   LEFT JOIN expedientes e ON e.id = ea.expediente_id
+  
 `)
-console.log('🟡 [AMPARO] Todas las filas en expedientes_amparo:', todasAmparo)
-console.log('🟡 [AMPARO] Total filas raw:', todasAmparo.length)
- // --- conteo Civil/Familiar ---
+
+// --- conteo Civil/Familiar (materia_id 1 y 3) ---
 const [{ total: cCF }] = await query<{ total: number }>(`
-  SELECT COUNT(DISTINCT e.id) as total
-  FROM expedientes e
-  INNER JOIN expedientes_civiles ec ON ec.expediente_id = e.id
-  WHERE e.cliente_id IS NOT NULL
+  SELECT COUNT(*) as total
+  FROM expedientes
+  WHERE materia_id IN (1, 3)
+  AND cliente_id IS NOT NULL
 `)
 
-// --- conteo Penal ---
+// --- conteo Penal (materia_id 2) ---
 const [{ total: cP }] = await query<{ total: number }>(`
-  SELECT COUNT(DISTINCT ep.expediente_id) as total
-  FROM expedientes_penales ep
-  INNER JOIN expedientes e ON e.id = ep.expediente_id
-  WHERE e.cliente_id IS NOT NULL
+  SELECT COUNT(*) as total
+  FROM expedientes
+  WHERE materia_id = 2
+  AND cliente_id IS NOT NULL
 `)
 
-// --- conteo Amparo ---
+// --- conteo Amparo (materia_id 4) ---
 const [{ total: cA }] = await query<{ total: number }>(`
-  SELECT COUNT(DISTINCT ea.expediente_id) as total
-  FROM expedientes_amparo ea
-  INNER JOIN expedientes e ON e.id = ea.expediente_id
-  WHERE e.cliente_id IS NOT NULL
+  SELECT COUNT(*) as total
+  FROM expedientes
+  WHERE materia_id = 4
+  AND cliente_id IS NOT NULL
 `)
 
   // --- últimos 5 expedientes (sin cambios) ---
