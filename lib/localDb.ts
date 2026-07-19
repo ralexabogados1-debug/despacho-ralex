@@ -1,47 +1,54 @@
 import initSqlJs, { Database } from 'sql.js';
 
 let db: Database | null = null;
-const STORAGE_KEY = 'juridico-sqlite';
-const VERSION_KEY = 'juridico-sqlite-version';
 
-// 🆕 Súbelo cada vez que necesites forzar una purga completa del cache
-// local en todos los dispositivos (ej. al activar RLS de expedientes,
-// para que cada abogado re-sincronice solo lo que le corresponde).
 const VERSION_ACTUAL = 2;
 
-export async function getDb(): Promise<Database> {
-  if (db) return db;
-
-  const SQL = await initSqlJs({ locateFile: () => '/sql-wasm.wasm' });
-
-  const versionGuardada = Number(localStorage.getItem(VERSION_KEY) ?? '0');
-  const versionCoincide = versionGuardada === VERSION_ACTUAL;
-
-  const saved = versionCoincide ? localStorage.getItem(STORAGE_KEY) : null;
-
-  if (saved) {
-    const buf = Uint8Array.from(atob(saved), c => c.charCodeAt(0));
-    db = new SQL.Database(buf);
-    migrarSchema(db);
-  } else {
-    // Versión nueva (o primera vez): DB limpia desde cero.
-    // Si había una DB vieja de una versión anterior, se descarta aquí
-    // a propósito — así ningún expediente ajeno queda "atorado" en el
-    // dispositivo esperando a que vuelva a haber conexión.
-    db = new SQL.Database();
-    initSchema(db);
-    localStorage.setItem(VERSION_KEY, String(VERSION_ACTUAL));
-  }
-
-  return db;
+function getStorageKey(userId?: string) {
+  const uid = userId ?? localStorage.getItem('juridico-current-user') ?? 'default'
+  return `juridico-sqlite-${uid}`
 }
 
-export function saveDb() {
-  if (!db) return;
-  const data = db.export();
-  const b64 = btoa(String.fromCharCode(...data));
-  localStorage.setItem(STORAGE_KEY, b64);
-  localStorage.setItem(VERSION_KEY, String(VERSION_ACTUAL));
+function getVersionKey(userId?: string) {
+  const uid = userId ?? localStorage.getItem('juridico-current-user') ?? 'default'
+  return `juridico-sqlite-version-${uid}`
+}
+
+export async function getDb(userId?: string): Promise<Database> {
+  if (db) return db
+
+  const SQL = await initSqlJs({ locateFile: () => '/sql-wasm.wasm' })
+
+  const storageKey = getStorageKey(userId)
+  const versionKey = getVersionKey(userId)
+
+  const versionGuardada = Number(localStorage.getItem(versionKey) ?? '0')
+  const versionCoincide = versionGuardada === VERSION_ACTUAL
+  const saved = versionCoincide ? localStorage.getItem(storageKey) : null
+
+  if (saved) {
+    const buf = Uint8Array.from(atob(saved), c => c.charCodeAt(0))
+    db = new SQL.Database(buf)
+    migrarSchema(db)
+  } else {
+    db = new SQL.Database()
+    initSchema(db)
+    localStorage.setItem(versionKey, String(VERSION_ACTUAL))
+  }
+
+  return db
+}
+
+export function saveDb(userId?: string) {
+  if (!db) return
+  const data = db.export()
+  const b64 = btoa(String.fromCharCode(...data))
+  localStorage.setItem(getStorageKey(userId), b64)
+  localStorage.setItem(getVersionKey(userId), String(VERSION_ACTUAL))
+}
+
+export function resetDb() {
+  db = null
 }
 
 function initSchema(db: Database) {
@@ -78,23 +85,23 @@ function initSchema(db: Database) {
       imputado                     TEXT,
       victima_ofendido             TEXT,
       proxima_actuacion            TEXT,
-      fecha_audiencia               TEXT,
+      fecha_audiencia              TEXT,
       tipo_audiencia               TEXT,
-      nombre_agente_mp              TEXT,
-      sync_status                   TEXT DEFAULT 'synced',
-      updated_at                    INTEGER
+      nombre_agente_mp             TEXT,
+      sync_status                  TEXT DEFAULT 'synced',
+      updated_at                   INTEGER
     );
 
     CREATE TABLE IF NOT EXISTS expedientes_amparo (
-      expediente_id          INTEGER PRIMARY KEY,
-      tipo_amparo            TEXT,
-      autoridad_responsable  TEXT,
-      acto_reclamado         TEXT,
-      tercero_interesado     TEXT,
-      estadio_procesal       TEXT,
-      proxima_audiencia      TEXT,
-      sync_status            TEXT DEFAULT 'synced',
-      updated_at             INTEGER
+      expediente_id         INTEGER PRIMARY KEY,
+      tipo_amparo           TEXT,
+      autoridad_responsable TEXT,
+      acto_reclamado        TEXT,
+      tercero_interesado    TEXT,
+      estadio_procesal      TEXT,
+      proxima_audiencia     TEXT,
+      sync_status           TEXT DEFAULT 'synced',
+      updated_at            INTEGER
     );
 
     CREATE TABLE IF NOT EXISTS expedientes_civiles (
@@ -105,13 +112,13 @@ function initSchema(db: Database) {
     );
 
     CREATE TABLE IF NOT EXISTS clientes (
-      id               INTEGER PRIMARY KEY,
-      nombre_completo  TEXT,
-      telefono         TEXT,
-      email            TEXT,
-      created_at       TEXT,
-      sync_status      TEXT DEFAULT 'synced',
-      updated_at       INTEGER
+      id              INTEGER PRIMARY KEY,
+      nombre_completo TEXT,
+      telefono        TEXT,
+      email           TEXT,
+      created_at      TEXT,
+      sync_status     TEXT DEFAULT 'synced',
+      updated_at      INTEGER
     );
 
     CREATE TABLE IF NOT EXISTS jueces (
@@ -131,8 +138,6 @@ function initSchema(db: Database) {
       updated_at  INTEGER
     );
 
-    -- Catálogo de materias (Civil, Familiar, Penal, Amparo, etc.)
-    -- Necesaria para el filtro "juzgados por materia" en Amparo offline.
     CREATE TABLE IF NOT EXISTS materias (
       id          INTEGER PRIMARY KEY,
       nombre      TEXT,
@@ -140,7 +145,6 @@ function initSchema(db: Database) {
       updated_at  INTEGER
     );
 
-    -- 🆕 Calendario de audiencias/eventos por usuario (para "Mi Perfil")
     CREATE TABLE IF NOT EXISTS eventos_calendario (
       id            INTEGER PRIMARY KEY,
       expediente_id INTEGER,
@@ -214,8 +218,8 @@ function initSchema(db: Database) {
       payload    TEXT,
       created_at INTEGER
     );
-  `);
-  saveDb();
+  `)
+  saveDb()
 }
 
 function columnaExiste(db: Database, tabla: string, columna: string): boolean {
@@ -279,7 +283,6 @@ function migrarSchema(db: Database) {
     );
   `)
 
-  // juzgados (usuarios con BD anterior a este cambio)
   db.run(`
     CREATE TABLE IF NOT EXISTS juzgados (
       id          INTEGER PRIMARY KEY,
@@ -291,7 +294,6 @@ function migrarSchema(db: Database) {
     );
   `)
 
-  // materias (usuarios con BD anterior a este cambio)
   db.run(`
     CREATE TABLE IF NOT EXISTS materias (
       id          INTEGER PRIMARY KEY,
@@ -301,9 +303,6 @@ function migrarSchema(db: Database) {
     );
   `)
 
-  // 🆕 eventos_calendario / actividad_reciente (usuarios con BD anterior a este cambio)
-  // Sin esto, queryPerfilLocal() fallaría con "no such table" en dispositivos
-  // que ya tenían una DB local guardada antes de agregar "Mi Perfil".
   db.run(`
     CREATE TABLE IF NOT EXISTS eventos_calendario (
       id            INTEGER PRIMARY KEY,
@@ -318,7 +317,6 @@ function migrarSchema(db: Database) {
     );
   `)
 
-
   agregarColumnaSiFalta(db, 'expedientes', 'ultima_actuacion', 'TEXT')
 
   agregarColumnaSiFalta(db, 'expedientes_penales', 'imputado', 'TEXT')
@@ -331,9 +329,6 @@ function migrarSchema(db: Database) {
   agregarColumnaSiFalta(db, 'expedientes_amparo', 'estadio_procesal', 'TEXT')
   agregarColumnaSiFalta(db, 'expedientes_amparo', 'proxima_audiencia', 'TEXT')
 
-  // estado_kanban (usuarios con BD anterior a este cambio) — sin esta
-  // columna el tablero de Tareas no puede clasificar filas offline en
-  // Por Hacer / En Progreso / Completada.
   agregarColumnaSiFalta(db, 'tareas', 'estado_kanban', 'TEXT')
 
   saveDb()

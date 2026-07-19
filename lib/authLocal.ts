@@ -1,5 +1,8 @@
+import { resetDb } from '@/lib/localDb'
+
 const SESSION_KEY = 'juridico-session'
 const CREDS_KEY   = 'juridico-creds'
+const USER_KEY    = 'juridico-current-user'
 
 export interface SesionLocal {
   id:         string
@@ -18,14 +21,11 @@ interface Perfil {
   iniciales: string
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// DURACIÓN DE SESIÓN: 1 año
-// El usuario NO tiene que volver a loguearse a menos que haga logout explícito
-// ─────────────────────────────────────────────────────────────────────────────
 const UN_ANO_MS = 1000 * 60 * 60 * 24 * 365
 
 export function guardarSesionLocal(sesion: SesionLocal) {
   localStorage.setItem(SESSION_KEY, JSON.stringify(sesion))
+  localStorage.setItem(USER_KEY, sesion.id)
 }
 
 export async function guardarCredsLocal(
@@ -61,15 +61,14 @@ export async function validarCredsLocal(email: string, password: string): Promis
   }
 }
 
-// Renueva el expires_at por otro año sin cambiar ningún otro dato
 export function renovarSesion() {
   const sesion = leerSesionLocal()
   if (!sesion) return
   guardarSesionLocal({ ...sesion, expires_at: Date.now() + UN_ANO_MS })
 }
 
-// Solo borra la sesión — NUNCA las creds
-// Las creds se necesitan para el login offline aunque el usuario haya cerrado sesión
 export function borrarSesionLocal() {
   localStorage.removeItem(SESSION_KEY)
+  localStorage.removeItem(USER_KEY)
+  resetDb()
 }
