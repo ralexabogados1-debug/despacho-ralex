@@ -8,6 +8,7 @@ import { useTema } from '@/app/sistema/layout'
 import { leerSesionLocal } from '@/lib/authLocal'
 import { query } from '@/lib/dbHelpers'
 import { syncConSupabase } from '@/lib/sync'
+import { hayConexionReal } from '@/lib/checkconnection'
 import BannerOffline from '@/components/BannerOffline'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -186,7 +187,13 @@ export default function DashboardPage() {
       setLoading(false)
     }
 
-    const user = navigator.onLine
+    // ── ✨ Se calcula UNA sola vez por corrida y se reutiliza en todo el flujo.
+    // Reemplaza navigator.onLine porque este último sigue reportando "true"
+    // con datos móviles activados pero sin MB/saldo, causando llamadas
+    // colgadas a Supabase.
+    const conectado = await hayConexionReal()
+
+    const user = conectado
       ? await getUserConTimeout(supabase)
       : null
 
@@ -203,7 +210,7 @@ export default function DashboardPage() {
       return
     }
 
-    if (navigator.onLine) {
+    if (conectado) {
       try {
         await syncConSupabase()
       } catch (syncErr) {
@@ -225,7 +232,7 @@ export default function DashboardPage() {
       setCountPenal(local.cP)
       setCountAmparo(local.cA)
       setRecientes(local.recientes)
-      setEsOffline(!navigator.onLine)
+      setEsOffline(!conectado)
       setLoading(false)
 
     } catch (e) {

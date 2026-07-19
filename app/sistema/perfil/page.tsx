@@ -1,5 +1,6 @@
 'use client'
 
+import { hayConexionReal } from '@/lib/checkconnection'
 import { useArranque } from '@/hooks/useArranque'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -67,7 +68,8 @@ export default function MiPerfilPage() {
       // fetch a Supabase — evita el error de red innecesario y el ruido en
       // consola (Failed to fetch / ERR_INTERNET_DISCONNECTED) cuando está
       // completamente offline.
-      const user = navigator.onLine
+      const conectado = await hayConexionReal()
+      const user = conectado
         ? await getUserConTimeout(supabase)
         : null
 

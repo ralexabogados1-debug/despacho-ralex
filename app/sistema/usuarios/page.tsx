@@ -1,5 +1,6 @@
 'use client'
 
+import { hayConexionReal } from '@/lib/checkconnection'
 import { useArranque } from '@/hooks/useArranque'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -88,10 +89,11 @@ export default function UsuariosPage() {
       // fetch a Supabase — evita el error de red innecesario y el ruido en
       // consola (Failed to fetch / ERR_INTERNET_DISCONNECTED) cuando está
       // completamente offline.
-      const authUser = navigator.onLine
-        ? await getUserConTimeout(supabase)
-        : null
-
+      const conectado = await hayConexionReal()
+      const authUser = conectado
+       ? await getUserConTimeout(supabase)
+       : null
+      
       if (!authUser) {
         if (!cacheValido) {
           router.push('/login')

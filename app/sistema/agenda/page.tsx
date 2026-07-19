@@ -1,5 +1,6 @@
 'use client'
 
+import { hayConexionReal } from '@/lib/checkconnection'
 import { useArranque } from '@/hooks/useArranque'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'

@@ -1,5 +1,6 @@
 'use client'
 
+import { hayConexionReal } from '@/lib/checkconnection'
 import { useArranque } from '@/hooks/useArranque'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -8,6 +9,7 @@ import { leerSesionLocal } from '@/lib/authLocal'
 import { query, queryExpedientesPenalesLocal, queryCatalogosLocal } from '@/lib/dbHelpers'
 import { syncConSupabase } from '@/lib/sync'
 import ClienteCausasPenales from './cliente'
+import { connectReactDebugChannel } from 'next/dist/server/dev/debug-channel'
 
 // ────────────────────────────────────────────────────────────────
 // 🔑 getUser con timeout (igual que en el Dashboard)
@@ -61,7 +63,8 @@ export default function PenalPage() {
       // 1. Si el navegador ya sabe que no hay conexión, ni intentamos el fetch.
       //    Esto evita el error de red innecesario y el ruido en consola cuando
       //    está completamente offline (ERR_INTERNET_DISCONNECTED).
-      const user = navigator.onLine
+      const conectado = await hayConexionReal()
+      const user = conectado
         ? await getUserConTimeout(supabase)
         : null
 
@@ -75,7 +78,7 @@ export default function PenalPage() {
       }
 
       // 2. ⚡ Sincronizar cola local si hay red
-      if (navigator.onLine) {
+      if (conectado) {
         try {
           await syncConSupabase()
         } catch (e) {

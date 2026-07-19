@@ -39,6 +39,31 @@ interface AlertaActiva {
   urgente: boolean
 }
 
+// ── ✨ Verificación de conectividad REAL, no solo navigator.onLine ──
+// navigator.onLine solo indica si hay una interfaz de red "activa" (WiFi
+// conectado o radio de datos encendido), NO si hay internet de verdad.
+// Con datos móviles activados pero sin MB/saldo, navigator.onLine sigue
+// devolviendo true, por eso hacía falta este ping real con timeout corto.
+async function hayConexionReal(timeoutMs = 2500): Promise<boolean> {
+  if (typeof navigator !== 'undefined' && !navigator.onLine) return false
+
+  try {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), timeoutMs)
+
+    await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/`, {
+      method: 'HEAD',
+      cache: 'no-store',
+      signal: controller.signal,
+    })
+
+    clearTimeout(timeout)
+    return true
+  } catch {
+    return false
+  }
+}
+
 export default function NotificacionesEventos() {
   const { oscuro } = useTema()
   const colores = oscuro ? T : T_LIGHT
@@ -52,6 +77,10 @@ export default function NotificacionesEventos() {
   useEffect(() => {
     async function checarEventosProximos() {
       try {
+        // ── ✨ Si no hay conexión real, ni siquiera intentamos tocar Supabase
+        const conectado = await hayConexionReal()
+        if (!conectado) return
+
         const { data: { user } } = await supabase.auth.getUser()
         if (!user) return
 
@@ -134,7 +163,7 @@ export default function NotificacionesEventos() {
   return (
     <div style={{
       position: 'fixed',
-      top: 24, // ── ✨ Posicionadas arriba ahora
+      top: 24,
       right: 24,
       zIndex: 99999,
       display: 'flex',
