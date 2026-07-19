@@ -14,7 +14,6 @@ import {
   eliminarColaboradorLocal,
 } from '@/lib/dbHelpers'
 import { leerSesionLocal } from '@/lib/authLocal'
-import { syncConSupabase } from '@/lib/sync'
 import { createClient } from '@/lib/supabase/client'
 import BannerOffline from '@/components/BannerOffline'
 
@@ -77,7 +76,17 @@ export default function ClienteAmparos({
   const { oscuro } = useTema()
   const T = oscuro ? T_DARK : T_LIGHT
 
-  const { isOnline } = useExpedientes('expedientes_amparo')
+  // 🔄 Mismo patrón de fallback offline que Civil/Penal: si hay conexión se usa
+  // el dato del servidor (prop), si no, el cache local.
+  const {
+    expedientes: amparosLocales,
+    isOnline,
+    syncing,
+    sincronizar,
+    recargar,
+  } = useExpedientes('expedientes_amparo')
+
+  const amparosActivos = (isOnline ? amparos : amparosLocales) ?? []
 
   const [abierto,    setAbierto]    = useState(false)
   const [busqueda,   setBusqueda]   = useState('')
@@ -131,7 +140,7 @@ export default function ClienteAmparos({
 
   const activo = (estado: string) => estado === 'Activo' || estado === 'En trámite'
 
-  const filtrados = amparos.filter(amp => {
+  const filtrados = amparosActivos.filter(amp => {
     const da   = amp.expedientes_amparo?.[0] ?? amp.expedientes_amparo ?? {}
     const term = busqueda.toLowerCase()
     const ok   =
@@ -148,10 +157,10 @@ export default function ClienteAmparos({
   })
 
   const cnt = {
-    todos:     amparos.length,
-    tramite:   amparos.filter(a => activo(a.estado)).length,
-    resueltos: amparos.filter(a => a.estado === 'Resuelto' || a.estado === 'Concluido').length,
-    termino:   amparos.filter(a => activo(a.estado) && proxTermo(a.tareas) !== null).length,
+    todos:     amparosActivos.length,
+    tramite:   amparosActivos.filter(a => activo(a.estado)).length,
+    resueltos: amparosActivos.filter(a => a.estado === 'Resuelto' || a.estado === 'Concluido').length,
+    termino:   amparosActivos.filter(a => activo(a.estado) && proxTermo(a.tareas) !== null).length,
   }
 
   function alternarColaboradorForm(id: number) {
@@ -197,9 +206,9 @@ export default function ClienteAmparos({
         await agregarColaboradorLocal(expedienteId, colabId, false)
       }
 
-      if (navigator.onLine) {
-        await syncConSupabase()
-      }
+      // 🔄 Mismo patrón de sync que Civil/Penal
+      if (isOnline) await sincronizar()
+      else await recargar()
 
       await onCreado?.()
 
@@ -221,11 +230,14 @@ export default function ClienteAmparos({
     setError(null)
     try {
       await agregarColaboradorLocal(detalleAbierto.id, Number(nuevoColaboradorId), false)
-      if (navigator.onLine) await syncConSupabase()
 
       const lista = await queryColaboradoresLocal(detalleAbierto.id)
       setColaboradoresDetalle(lista)
       setNuevoColaboradorId('')
+
+      if (isOnline) await sincronizar()
+      else await recargar()
+
       await onCreado?.()
     } catch (e) {
       console.error(e)
@@ -241,10 +253,13 @@ export default function ClienteAmparos({
     setError(null)
     try {
       await eliminarColaboradorLocal(detalleAbierto.id, usuarioId)
-      if (navigator.onLine) await syncConSupabase()
 
       const lista = await queryColaboradoresLocal(detalleAbierto.id)
       setColaboradoresDetalle(lista)
+
+      if (isOnline) await sincronizar()
+      else await recargar()
+
       await onCreado?.()
     } catch (e) {
       console.error(e)
@@ -258,7 +273,7 @@ export default function ClienteAmparos({
     setEliminando(true)
     setError(null)
     try {
-      if (navigator.onLine) {
+      if (isOnline) {
         const supabase = createClient()
         const { error: errSupabase } = await supabase
           .from('expedientes')
@@ -267,8 +282,10 @@ export default function ClienteAmparos({
 
         if (errSupabase) throw errSupabase
         await limpiarExpedienteCacheTrasBorrarOnline(amp.id)
+        await sincronizar()
       } else {
         await eliminarExpedienteLocal(amp.id)
+        await recargar()
       }
 
       await onCreado?.()
@@ -332,6 +349,21 @@ export default function ClienteAmparos({
             Gestión de juicios de amparo
             &nbsp;·&nbsp;
             <strong style={{ color: T.textPrimary }}>{cnt.todos}</strong> registrados
+            &nbsp;·&nbsp;
+            <span style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              color: isOnline ? T.green : T.amber
+            }}>
+              <span style={{
+                width: 5, height: 5,
+                borderRadius: '50%',
+                background: isOnline ? T.green : T.amber,
+                display: 'inline-block'
+              }}/>
+              {syncing ? 'Sincronizando...' : isOnline ? 'En línea' : 'Sin conexión'}
+            </span>
           </p>
         </div>
         <button onClick={() => setAbierto(true)} className="amp-btn-new" style={s.btnPrimario}>
@@ -419,7 +451,7 @@ export default function ClienteAmparos({
                         <td style={{ ...s.td, color: T.textMuted, fontSize: 13 }}>{da.estadio_procesal ?? '—'}</td>
                         <td style={s.td}>
                           {!act ? (
-                            <span style={{ ...s.pill, background: T.goldAlpha, color: T.gold, borderWidth: '1px', borderStyle: 'solid', borderColor: `${T.gold}44` }}>Resuelto</span>
+                            <span style={{ ...s.pill, background: T.goldAlpha, color: T.gold, border: `1px solid ${T.gold}44` }}>Resuelto</span>
                           ) : pt ? (
                             <span style={{ fontWeight: esH || venc ? 600 : 400, color: venc ? T.red : esH ? T.amber : T.textMuted, fontSize: 13 }}>
                               {venc ? '⚠ ' : esH ? '● ' : ''}{pt}
@@ -671,7 +703,7 @@ export default function ClienteAmparos({
                       <DetalleFila label="Próxima Audiencia" valor={da.proxima_audiencia} T={T} />
                     </Seccion>
 
-                    {/* 🆕 Colaboradores */}
+                    {/* Colaboradores */}
                     <Seccion titulo="Colaboradores" icono="👥" T={T} oscuro={oscuro}>
                       {colaboradoresDetalle.length === 0 ? (
                         <p style={{ fontSize: 12, color: T.textFaint, margin: 0 }}>Sin colaboradores registrados.</p>
@@ -747,7 +779,7 @@ export default function ClienteAmparos({
         </div>
       )}
 
-      {/* ── MODAL — 🆕 Confirmar eliminación ── */}
+      {/* ── MODAL — Confirmar eliminación ── */}
       {eliminarObjetivo && (
         <div style={{ ...s.overlay, zIndex: 300 }} onClick={() => !eliminando && setEliminarObjetivo(null)}>
           <div style={{ ...s.modal, maxWidth: 420, maxHeight: 'none' }} onClick={e => e.stopPropagation()}>
@@ -791,7 +823,7 @@ export default function ClienteAmparos({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Sub-components (ahora reciben T y oscuro)
+// Sub-components
 // ─────────────────────────────────────────────────────────────────────────────
 function Alerta({ tipo, oscuro, children }: { tipo: 'ok' | 'error'; oscuro: boolean; children: React.ReactNode }) {
   const ok = tipo === 'ok'
@@ -839,7 +871,6 @@ function Campo({ label, T, children }: { label: string; T: typeof T_DARK; childr
   )
 }
 
-// 🆕 Fila de solo lectura para el modal de detalle
 function DetalleFila({ label, valor, T }: { label: string; valor: any; T: typeof T_DARK }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '6px 0', borderBottom: `1px solid ${T.border}` }}>
@@ -849,7 +880,7 @@ function DetalleFila({ label, valor, T }: { label: string; valor: any; T: typeof
   )
 }
 // ─────────────────────────────────────────────────────────────────────────────
-// Función generadora de estilos dinámica (Corregida para TypeScript)
+// Función generadora de estilos dinámica
 // ─────────────────────────────────────────────────────────────────────────────
 const getStyles = (T: typeof T_DARK, oscuro: boolean) => ({
   root: {
@@ -906,18 +937,14 @@ const getStyles = (T: typeof T_DARK, oscuro: boolean) => ({
     padding: '8px 16px',
     background: 'transparent',
     color: T.textMuted,
-    borderWidth: '1px',
-    borderStyle: 'solid',
-    borderColor: T.border,
+    border: `1px solid ${T.border}`,
     borderRadius: 6,
     fontSize: 13,
     cursor: 'pointer',
   } as React.CSSProperties,
   btnCerrar: {
     width: 28, height: 28,
-    borderWidth: '1px',
-    borderStyle: 'solid',
-    borderColor: T.border,
+    border: `1px solid ${T.border}`,
     borderRadius: 6,
     background: T.surfaceLow,
     color: T.textMuted,
@@ -928,9 +955,7 @@ const getStyles = (T: typeof T_DARK, oscuro: boolean) => ({
   btnIcono: (T: typeof T_DARK) => ({
     width: 26, height: 26,
     display: 'flex', alignItems: 'center', justifyContent: 'center',
-    borderWidth: '1px',
-    borderStyle: 'solid',
-    borderColor: T.border,
+    border: `1px solid ${T.border}`,
     borderRadius: 6,
     background: T.surfaceLow,
     color: T.textMuted,
@@ -954,9 +979,7 @@ const getStyles = (T: typeof T_DARK, oscuro: boolean) => ({
     width: '100%',
     padding: '8px 10px 8px 30px',
     background: T.surfaceLow,
-    borderWidth: '1px',
-    borderStyle: 'solid',
-    borderColor: T.border,
+    border: `1px solid ${T.border}`,
     borderRadius: 6,
     color: T.textPrimary,
     fontSize: 13,
@@ -966,9 +989,7 @@ const getStyles = (T: typeof T_DARK, oscuro: boolean) => ({
     padding: '6px 12px',
     background: activo ? T.goldAlpha : 'transparent',
     color:      activo ? T.gold : T.textMuted,
-    borderWidth: '1px',
-    borderStyle: 'solid',
-    borderColor: activo ? `${T.gold}66` : T.border,
+    border:     `1px solid ${activo ? `${T.gold}66` : T.border}`,
     borderRadius: 6,
     cursor: 'pointer',
     fontSize: 12,
@@ -977,9 +998,7 @@ const getStyles = (T: typeof T_DARK, oscuro: boolean) => ({
   }),
   tabla: {
     background: T.surface,
-    borderWidth: '1px',
-    borderStyle: 'solid',
-    borderColor: T.border,
+    border: `1px solid ${T.border}`,
     borderRadius: 8,
     overflow: 'hidden',
   } as React.CSSProperties,
@@ -1006,15 +1025,11 @@ const getStyles = (T: typeof T_DARK, oscuro: boolean) => ({
     textTransform: 'uppercase' as const,
     textAlign: 'left' as const,
     background: T.surfaceLow,
-    borderBottomWidth: '1px',
-    borderBottomStyle: 'solid',
-    borderBottomColor: T.border,
+    borderBottom: `1px solid ${T.border}`,
   } as React.CSSProperties,
   td: {
     padding: '10px 14px',
-    borderBottomWidth: '1px',
-    borderBottomStyle: 'solid',
-    borderBottomColor: T.border,
+    borderBottom: `1px solid ${T.border}`,
     verticalAlign: 'middle' as const,
   } as React.CSSProperties,
   sub: { fontSize: 11, color: T.textFaint, marginTop: 2 } as React.CSSProperties,
@@ -1024,9 +1039,7 @@ const getStyles = (T: typeof T_DARK, oscuro: boolean) => ({
     alignItems: 'center',
     gap: 10,
     padding: '10px 12px',
-    borderBottomWidth: '1px',
-    borderBottomStyle: 'solid',
-    borderBottomColor: T.border,
+    borderBottom: `1px solid ${T.border}`,
     textDecoration: 'none',
     color: 'inherit',
   } as React.CSSProperties,
@@ -1055,9 +1068,7 @@ const getStyles = (T: typeof T_DARK, oscuro: boolean) => ({
   } as React.CSSProperties,
   modal: {
     background: T.surface,
-    borderWidth: '1px',
-    borderStyle: 'solid',
-    borderColor: T.border,
+    border: `1px solid ${T.border}`,
     borderRadius: 12,
     width: '100%',
     maxWidth: 600,
@@ -1090,9 +1101,7 @@ const getStyles = (T: typeof T_DARK, oscuro: boolean) => ({
     width: '100%',
     padding: '10px 12px',
     background: T.surfaceLow,
-    borderWidth: '1px',
-    borderStyle: 'solid',
-    borderColor: T.border,
+    border: `1px solid ${T.border}`,
     borderRadius: 6,
     color: T.textPrimary,
     fontSize: 13,

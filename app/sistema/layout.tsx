@@ -332,7 +332,7 @@ export default function SistemaLayout({ children }: { children: React.ReactNode 
           style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }}
         />
         <span style={{ ...styles.fadeText(expandido || isMobile), fontSize: 13, fontWeight: 600, color: colores.textPrimary, letterSpacing: '-0.3px' }}>
-          Jurídico Legal
+          RALEX
         </span>
       </div>
 
@@ -524,7 +524,7 @@ export default function SistemaLayout({ children }: { children: React.ReactNode 
             <main style={styles.main}>{children}</main>
 
             <footer style={styles.footerGlobal}>
-              <span style={{ color: colores.textFaint, fontSize: 12 }}>© {new Date().getFullYear()} Jurídico Legal</span>
+              <span style={{ color: colores.textFaint, fontSize: 12 }}>© {new Date().getFullYear()} RALEX</span>
               <div className="footer-links" style={{ display: 'flex', gap: 16 }}>
                 <Link href="/sistema/perfil" style={styles.footerLink}>Mi perfil</Link>
                 <Link href="/sistema/agenda" style={styles.footerLink}>Agenda</Link>

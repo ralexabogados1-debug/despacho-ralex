@@ -15,6 +15,7 @@ import {
 } from '@/lib/dbHelpers'
 import { leerSesionLocal } from '@/lib/authLocal'
 import { createClient } from '@/lib/supabase/client'
+import BannerOffline from '@/components/BannerOffline'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 🎨 TOKENS OSCUROS (Civil / Familiar – azul)
@@ -100,15 +101,15 @@ export default function ClienteCivilFamiliar({
 
   const [abogadoActual, setAbogadoActual] = useState<{ id: number; nombre_completo: string } | null>(null)
 
-  // 🆕 Colaboradores seleccionados en el formulario de creación
+  // Colaboradores seleccionados en el formulario de creación
   const [colaboradoresForm, setColaboradoresForm] = useState<number[]>([])
 
-  // 🆕 Estado para "Ver más" y "Eliminar"
+  // Estado para "Ver más" y "Eliminar"
   const [detalleAbierto,   setDetalleAbierto]   = useState<any | null>(null)
   const [eliminarObjetivo, setEliminarObjetivo] = useState<any | null>(null)
   const [eliminando,       setEliminando]       = useState(false)
 
-  // 🆕 Colaboradores del expediente abierto en el modal de detalle
+  // Colaboradores del expediente abierto en el modal de detalle
   const [colaboradoresDetalle, setColaboradoresDetalle] = useState<any[]>([])
   const [nuevoColaboradorId,   setNuevoColaboradorId]   = useState<string>('')
   const [guardandoColaborador, setGuardandoColaborador] = useState(false)
@@ -124,7 +125,7 @@ export default function ClienteCivilFamiliar({
     })()
   }, [])
 
-  // 🆕 Carga colaboradores cada vez que se abre un detalle
+  // Carga colaboradores cada vez que se abre un detalle
   useEffect(() => {
     if (!detalleAbierto) {
       setColaboradoresDetalle([])
@@ -168,7 +169,7 @@ export default function ClienteCivilFamiliar({
     termino:    expedientesActivos.filter(e => esActivo(e.estado) && proxTermo(e.tareas) !== null).length,
   }
 
-  // 🆕 Marca/desmarca un abogado en el checklist del formulario
+  // Marca/desmarca un abogado en el checklist del formulario
   function alternarColaboradorForm(id: number) {
     setColaboradoresForm(prev =>
       prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
@@ -202,7 +203,7 @@ export default function ClienteCivilFamiliar({
         descripcion:           (formData.get('descripcion') as string) || null,
       }, usuarioLocal.id)
 
-      // 🆕 Agrega colaboradores adicionales marcados en el checklist
+      // Agrega colaboradores adicionales marcados en el checklist
       for (const colabId of colaboradoresForm) {
         if (colabId === usuarioLocal.id) continue
         await agregarColaboradorLocal(expedienteId, colabId, false)
@@ -220,7 +221,7 @@ export default function ClienteCivilFamiliar({
     }
   }
 
-  // 🆕 Agrega un colaborador desde el modal de detalle
+  // Agrega un colaborador desde el modal de detalle
   async function manejarAgregarColaboradorDetalle() {
     if (!detalleAbierto || !nuevoColaboradorId) return
     setGuardandoColaborador(true)
@@ -242,7 +243,7 @@ export default function ClienteCivilFamiliar({
     }
   }
 
-  // 🆕 Quita un colaborador desde el modal de detalle
+  // Quita un colaborador desde el modal de detalle
   async function manejarQuitarColaboradorDetalle(usuarioId: number) {
     if (!detalleAbierto) return
     setGuardandoColaborador(true)
@@ -264,7 +265,7 @@ export default function ClienteCivilFamiliar({
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // 🆕 Eliminar expediente
+  // Eliminar expediente
   // Online: borra directo en Supabase y limpia el cache local sin encolar.
   // Offline: bloqueado en la UI (botón disabled), pero se deja el flujo local
   // como respaldo.
@@ -303,7 +304,7 @@ export default function ClienteCivilFamiliar({
 
   const s = getStyles(T, oscuro)
 
-  // 🆕 Abogados disponibles para agregar como colaborador en el detalle
+  // Abogados disponibles para agregar como colaborador en el detalle
   const abogadosDisponiblesDetalle = abogados.filter(
     a => !colaboradoresDetalle.some(c => c.usuario_id === a.id)
   )
@@ -339,6 +340,8 @@ export default function ClienteCivilFamiliar({
         .civ-row:hover { background: ${oscuro ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)'}; }
         .civ-row-link:hover { background: ${oscuro ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)'}; }
       `}</style>
+
+      <BannerOffline esOffline={!isOnline} />
 
       {/* ── ENCABEZADO ── */}
       <div className="civ-header" style={s.header}>
@@ -463,7 +466,6 @@ export default function ClienteCivilFamiliar({
                             <span style={{ color: T.textFaint, fontSize: 13 }}>—</span>
                           )}
                         </td>
-                        {/* 🆕 Acciones */}
                         <td style={s.td}>
                           <div style={{ display: 'flex', gap: 6 }}>
                             <button
@@ -520,8 +522,6 @@ export default function ClienteCivilFamiliar({
                         {exp.tipo_juicio || 'Civil / Familiar'}
                       </div>
                     </div>
-                    {/* Indicador de navegación — tocar la tarjeta lleva a la pantalla
-                        real de detalle, que ya tiene su propio botón de eliminar */}
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ color: T.textFaint, flexShrink: 0 }}>
                       <path d="m9 18 6-6-6-6"/>
                     </svg>
@@ -677,7 +677,7 @@ export default function ClienteCivilFamiliar({
                   </Campo>
                 </Seccion>
 
-                {/* 🆕 Colaboradores adicionales */}
+                {/* Colaboradores adicionales */}
                 <Seccion titulo="Colaboradores" icono="👥" T={T} oscuro={oscuro}>
                   <p style={{ fontSize: 11.5, color: T.textMuted, margin: '0 0 10px' }}>
                     {abogadoActual?.nombre_completo ?? 'Tú'} queda como responsable automáticamente.
@@ -714,7 +714,7 @@ export default function ClienteCivilFamiliar({
         </div>
       )}
 
-      {/* ── MODAL — 🆕 Ver más (detalle) ── */}
+      {/* ── MODAL — Ver más (detalle) ── */}
       {detalleAbierto && (
         <div style={s.overlay} onClick={() => setDetalleAbierto(null)}>
           <div style={s.modal} onClick={e => e.stopPropagation()}>
@@ -756,7 +756,7 @@ export default function ClienteCivilFamiliar({
                 </Seccion>
               )}
 
-              {/* 🆕 Colaboradores */}
+              {/* Colaboradores */}
               <Seccion titulo="Colaboradores" icono="👥" T={T} oscuro={oscuro}>
                 {colaboradoresDetalle.length === 0 ? (
                   <p style={{ fontSize: 12, color: T.textFaint, margin: 0 }}>Sin colaboradores registrados.</p>
@@ -829,7 +829,7 @@ export default function ClienteCivilFamiliar({
         </div>
       )}
 
-      {/* ── MODAL — 🆕 Confirmar eliminación ── */}
+      {/* ── MODAL — Confirmar eliminación ── */}
       {eliminarObjetivo && (
         <div style={{ ...s.overlay, zIndex: 300 }} onClick={() => !eliminando && setEliminarObjetivo(null)}>
           <div style={{ ...s.modal, maxWidth: 420, maxHeight: 'none' }} onClick={e => e.stopPropagation()}>
@@ -872,7 +872,7 @@ export default function ClienteCivilFamiliar({
   )
 }
 
-// ─── Sub-componentes adaptados al tema ─────────────────────────────────
+// ─── Sub-componentes ────────────────────────────────────────────────────
 function Alerta({ tipo, oscuro, children }: { tipo: 'ok' | 'error'; oscuro: boolean; children: React.ReactNode }) {
   const ok = tipo === 'ok'
   return (
@@ -919,7 +919,6 @@ function Campo({ label, T, children }: { label: string; T: typeof T_DARK; childr
   )
 }
 
-// 🆕 Fila de solo lectura para el modal de detalle
 function DetalleFila({ label, valor, T }: { label: string; valor: any; T: typeof T_DARK }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '6px 0', borderBottom: `1px solid ${T.border}` }}>
@@ -998,7 +997,6 @@ const getStyles = (T: typeof T_DARK, oscuro: boolean) => ({
     cursor: 'pointer',
     flexShrink: 0,
   } as React.CSSProperties,
-  // 🆕 Botón de ícono para acciones (Ver más / Eliminar)
   btnIcono: (T: typeof T_DARK) => ({
     width: 26, height: 26,
     display: 'flex', alignItems: 'center', justifyContent: 'center',

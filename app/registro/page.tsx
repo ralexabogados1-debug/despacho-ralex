@@ -46,7 +46,7 @@ export default async function RegistroPage({
             }}
           />
           <div>
-            <div style={css.logoNombre}>Jurídico Legal</div>
+            <div style={css.logoNombre}>RALEX</div>
             <div style={css.logoSub}>Sistema de Gestión Jurídica</div>
           </div>
         </div>
@@ -150,7 +150,7 @@ export default async function RegistroPage({
         </div>
 
         <p style={css.pie}>
-          © {new Date().getFullYear()} Jurídico Legal — Acceso restringido
+          © {new Date().getFullYear()} RALEX — Acceso restringido
         </p>
 
       </div>

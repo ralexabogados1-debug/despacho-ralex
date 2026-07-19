@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { useTema } from '@/app/sistema/layout'
 import { useExpedientes } from '@/hooks/useExpedientes'
 import {
@@ -91,15 +92,15 @@ export default function ClienteCausasPenales({
 
   const [abogadoActual, setAbogadoActual] = useState<{ id: number; nombre_completo: string } | null>(null)
 
-  // 🆕 Colaboradores seleccionados en el formulario de creación
+  // Colaboradores seleccionados en el formulario de creación
   const [colaboradoresForm, setColaboradoresForm] = useState<number[]>([])
 
-  // 🆕 Estado para "Ver más" y "Eliminar"
+  // Estado para "Ver más" y "Eliminar"
   const [detalleAbierto,   setDetalleAbierto]   = useState<any | null>(null)
   const [eliminarObjetivo, setEliminarObjetivo] = useState<any | null>(null)
   const [eliminando,       setEliminando]       = useState(false)
 
-  // 🆕 Colaboradores del expediente abierto en el modal de detalle
+  // Colaboradores del expediente abierto en el modal de detalle
   const [colaboradoresDetalle, setColaboradoresDetalle] = useState<any[]>([])
   const [nuevoColaboradorId,   setNuevoColaboradorId]   = useState<string>('')
   const [guardandoColaborador, setGuardandoColaborador] = useState(false)
@@ -115,7 +116,7 @@ export default function ClienteCausasPenales({
     })()
   }, [])
 
-  // 🆕 Carga colaboradores cada vez que se abre un detalle
+  // Carga colaboradores cada vez que se abre un detalle
   useEffect(() => {
     if (!detalleAbierto) {
       setColaboradoresDetalle([])
@@ -161,7 +162,7 @@ export default function ClienteCausasPenales({
     termino:    causasActivas.filter(c => esActivo(c.estado) && proxTermo(c.tareas) !== null).length,
   }
 
-  // 🆕 Marca/desmarca un abogado en el checklist del formulario
+  // Marca/desmarca un abogado en el checklist del formulario
   function alternarColaboradorForm(id: number) {
     setColaboradoresForm(prev =>
       prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
@@ -196,7 +197,7 @@ export default function ClienteCausasPenales({
         descripcion:    (formData.get('descripcion') as string) || null,
       }, usuarioLocal.id)
 
-      // 🆕 Agrega colaboradores adicionales marcados en el checklist
+      // Agrega colaboradores adicionales marcados en el checklist
       for (const colabId of colaboradoresForm) {
         if (colabId === usuarioLocal.id) continue
         await agregarColaboradorLocal(expedienteId, colabId, false)
@@ -214,7 +215,7 @@ export default function ClienteCausasPenales({
     }
   }
 
-  // 🆕 Agrega un colaborador desde el modal de detalle
+  // Agrega un colaborador desde el modal de detalle
   async function manejarAgregarColaboradorDetalle() {
     if (!detalleAbierto || !nuevoColaboradorId) return
     setGuardandoColaborador(true)
@@ -236,7 +237,7 @@ export default function ClienteCausasPenales({
     }
   }
 
-  // 🆕 Quita un colaborador desde el modal de detalle
+  // Quita un colaborador desde el modal de detalle
   async function manejarQuitarColaboradorDetalle(usuarioId: number) {
     if (!detalleAbierto) return
     setGuardandoColaborador(true)
@@ -258,7 +259,7 @@ export default function ClienteCausasPenales({
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // 🆕 Eliminar causa penal
+  // Eliminar causa penal
   // Online: borra directo en Supabase y limpia el cache local sin encolar.
   // Offline: bloqueado en la UI (botón disabled), pero se deja el flujo local
   // como respaldo.
@@ -297,7 +298,7 @@ export default function ClienteCausasPenales({
 
   const s = getStyles(T, oscuro)
 
-  // 🆕 Abogados disponibles para agregar como colaborador en el detalle
+  // Abogados disponibles para agregar como colaborador en el detalle
   const abogadosDisponiblesDetalle = abogados.filter(
     a => !colaboradoresDetalle.some(c => c.usuario_id === a.id)
   )
@@ -345,6 +346,21 @@ export default function ClienteCausasPenales({
             Gestión en materia penal
             &nbsp;·&nbsp;
             <strong style={{ color: T.textPrimary }}>{cnt.todos}</strong> registradas
+            &nbsp;·&nbsp;
+            <span style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              color: isOnline ? T.green : T.amber
+            }}>
+              <span style={{
+                width: 5, height: 5,
+                borderRadius: '50%',
+                background: isOnline ? T.green : T.amber,
+                display: 'inline-block'
+              }}/>
+              {syncing ? 'Sincronizando...' : isOnline ? 'En línea' : 'Sin conexión'}
+            </span>
           </p>
         </div>
         <button onClick={() => setAbierto(true)} className="pen-btn-new" style={{ ...s.btnPrimario, background: T.accent }}>
@@ -417,9 +433,9 @@ export default function ClienteCausasPenales({
                     return (
                       <tr key={c.id} className="pen-row">
                         <td style={s.td}>
-                          <a href={`/sistema/expedientes/penal/detalle?id=${c.id}`} style={{ fontWeight: 600, color: T.textPrimary, fontSize: 13, textDecoration: 'none' }}>
+                          <Link href={`/sistema/expedientes/penal/detalle?id=${c.id}`} style={{ fontWeight: 600, color: T.textPrimary, fontSize: 13, textDecoration: 'none' }}>
                             {c.numero_expediente}
-                          </a>
+                          </Link>
                           <div style={s.sub}>Carp: {penal.numero_carpeta_investigacion ?? '—'}</div>
                         </td>
                         <td style={s.td}>
@@ -448,7 +464,6 @@ export default function ClienteCausasPenales({
                             <span style={{ color: T.textFaint, fontSize: 13 }}>—</span>
                           )}
                         </td>
-                        {/* 🆕 Acciones */}
                         <td style={s.td}>
                           <div style={{ display: 'flex', gap: 6 }}>
                             <button
@@ -488,7 +503,7 @@ export default function ClienteCausasPenales({
                 const venc  = pt && pt < hoy
                 const act   = esActivo(c.estado)
                 return (
-                  <a key={c.id} href={`/sistema/expedientes/penal/detalle?id=${c.id}`} className="pen-row-link" style={s.rowLink}>
+                  <Link key={c.id} href={`/sistema/expedientes/penal/detalle?id=${c.id}`} className="pen-row-link" style={s.rowLink}>
                     <div style={{ ...s.avatar, background: T.accentAlpha, color: T.accent }}>
                       <span style={{ fontSize: 16, fontWeight: 'bold' }}>P</span>
                     </div>
@@ -506,12 +521,10 @@ export default function ClienteCausasPenales({
                         {penal.delito || 'Sin delito'}
                       </div>
                     </div>
-                    {/* Indicador de navegación — tocar la tarjeta lleva a la pantalla
-                        real de detalle, que ya tiene su propio botón de eliminar */}
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ color: T.textFaint, flexShrink: 0 }}>
                       <path d="m9 18 6-6-6-6"/>
                     </svg>
-                  </a>
+                  </Link>
                 )
               })}
             </div>
@@ -670,7 +683,7 @@ export default function ClienteCausasPenales({
                   </Campo>
                 </Seccion>
 
-                {/* 🆕 Colaboradores adicionales */}
+                {/* Colaboradores adicionales */}
                 <Seccion titulo="Colaboradores" icono="👥" T={T} oscuro={oscuro}>
                   <p style={{ fontSize: 11.5, color: T.textMuted, margin: '0 0 10px' }}>
                     {abogadoActual?.nombre_completo ?? 'Tú'} queda como responsable automáticamente.
@@ -707,7 +720,7 @@ export default function ClienteCausasPenales({
         </div>
       )}
 
-      {/* ── MODAL — 🆕 Ver más (detalle) ── */}
+      {/* ── MODAL — Ver más (detalle) ── */}
       {detalleAbierto && (
         <div style={s.overlay} onClick={() => setDetalleAbierto(null)}>
           <div style={s.modal} onClick={e => e.stopPropagation()}>
@@ -755,7 +768,7 @@ export default function ClienteCausasPenales({
                       </Seccion>
                     )}
 
-                    {/* 🆕 Colaboradores */}
+                    {/* Colaboradores */}
                     <Seccion titulo="Colaboradores" icono="👥" T={T} oscuro={oscuro}>
                       {colaboradoresDetalle.length === 0 ? (
                         <p style={{ fontSize: 12, color: T.textFaint, margin: 0 }}>Sin colaboradores registrados.</p>
@@ -831,7 +844,7 @@ export default function ClienteCausasPenales({
         </div>
       )}
 
-      {/* ── MODAL — 🆕 Confirmar eliminación ── */}
+      {/* ── MODAL — Confirmar eliminación ── */}
       {eliminarObjetivo && (
         <div style={{ ...s.overlay, zIndex: 300 }} onClick={() => !eliminando && setEliminarObjetivo(null)}>
           <div style={{ ...s.modal, maxWidth: 420, maxHeight: 'none' }} onClick={e => e.stopPropagation()}>
@@ -874,7 +887,7 @@ export default function ClienteCausasPenales({
   )
 }
 
-// ─── Sub-componentes adaptados al tema ──────────────────────────────────────
+// ─── Sub-componentes ─────────────────────────────────────────────────────────
 function Alerta({ tipo, oscuro, children }: { tipo: 'ok' | 'error'; oscuro: boolean; children: React.ReactNode }) {
   const ok = tipo === 'ok'
   return (
@@ -921,7 +934,6 @@ function Campo({ label, T, children }: { label: string; T: typeof T_DARK; childr
   )
 }
 
-// 🆕 Fila de solo lectura para el modal de detalle
 function DetalleFila({ label, valor, T }: { label: string; valor: any; T: typeof T_DARK }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '6px 0', borderBottom: `1px solid ${T.border}` }}>
@@ -931,7 +943,7 @@ function DetalleFila({ label, valor, T }: { label: string; valor: any; T: typeof
   )
 }
 
-// ─── Estilos – modal centrado con márgenes en móvil ─────────────────────
+// ─── Estilos ──────────────────────────────────────────────────────────────
 const getStyles = (T: typeof T_DARK, oscuro: boolean) => ({
   root: {
     width: '100%',
@@ -1000,7 +1012,6 @@ const getStyles = (T: typeof T_DARK, oscuro: boolean) => ({
     cursor: 'pointer',
     flexShrink: 0,
   } as React.CSSProperties,
-  // 🆕 Botón de ícono para acciones (Ver más / Eliminar)
   btnIcono: (T: typeof T_DARK) => ({
     width: 26, height: 26,
     display: 'flex', alignItems: 'center', justifyContent: 'center',
