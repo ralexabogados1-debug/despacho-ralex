@@ -87,23 +87,29 @@ async function cargarDatosLocales() {
   const civilesLocal = await query<any>(`SELECT * FROM expedientes_civiles`)
   console.log('🔵 [DIAGNÓSTICO] Filas en expedientes_civiles LOCAL:', civilesLocal)
 
-  // ✅ Conteo de Civil/Familiar usando expedientes_civiles (funciona para ambos)
-  const [{ total: cCF }] = await query<{ total: number }>(`
-    SELECT COUNT(*) as total
-    FROM expedientes e
-    INNER JOIN expedientes_civiles ec ON ec.expediente_id = e.id
-    WHERE e.cliente_id IS NOT NULL
-  `)
+ // --- conteo Civil/Familiar ---
+const [{ total: cCF }] = await query<{ total: number }>(`
+  SELECT COUNT(DISTINCT e.id) as total
+  FROM expedientes e
+  INNER JOIN expedientes_civiles ec ON ec.expediente_id = e.id
+  WHERE e.cliente_id IS NOT NULL
+`)
 
-  // --- conteo Penal ---
-  const [{ total: cP }] = await query<{ total: number }>(`
-    SELECT COUNT(*) as total FROM expedientes_penales
-  `)
+// --- conteo Penal ---
+const [{ total: cP }] = await query<{ total: number }>(`
+  SELECT COUNT(DISTINCT ep.expediente_id) as total
+  FROM expedientes_penales ep
+  INNER JOIN expedientes e ON e.id = ep.expediente_id
+  WHERE e.cliente_id IS NOT NULL
+`)
 
-  // --- conteo Amparo ---
-  const [{ total: cA }] = await query<{ total: number }>(`
-    SELECT COUNT(*) as total FROM expedientes_amparo
-  `)
+// --- conteo Amparo ---
+const [{ total: cA }] = await query<{ total: number }>(`
+  SELECT COUNT(DISTINCT ea.expediente_id) as total
+  FROM expedientes_amparo ea
+  INNER JOIN expedientes e ON e.id = ea.expediente_id
+  WHERE e.cliente_id IS NOT NULL
+`)
 
   // --- últimos 5 expedientes (sin cambios) ---
   const rows = await query<any>(`
