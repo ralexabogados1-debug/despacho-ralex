@@ -87,6 +87,13 @@ async function cargarDatosLocales() {
   const civilesLocal = await query<any>(`SELECT * FROM expedientes_civiles`)
   console.log('🔵 [DIAGNÓSTICO] Filas en expedientes_civiles LOCAL:', civilesLocal)
 
+  const todasAmparo = await query<any>(`
+    SELECT ea.*, e.cliente_id, e.numero_expediente 
+  FROM expedientes_amparo ea
+  LEFT JOIN expedientes e ON e.id = ea.expediente_id
+`)
+console.log('🟡 [AMPARO] Todas las filas en expedientes_amparo:', todasAmparo)
+console.log('🟡 [AMPARO] Total filas raw:', todasAmparo.length)
  // --- conteo Civil/Familiar ---
 const [{ total: cCF }] = await query<{ total: number }>(`
   SELECT COUNT(DISTINCT e.id) as total
