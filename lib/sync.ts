@@ -3,6 +3,22 @@ import { createClient } from './supabase/client';
 
 const supabase = createClient();
 
+// ─────────────────────────────────────────────────────────────────────────
+// ⏱️ Envuelve cualquier promesa de Supabase con timeout. Sin esto, cada
+// llamada individual puede tardar 15-30s+ en fallar con señal mala, y como
+// descargarFrescos() recorre 12 tablas en secuencia, eso fácilmente explica
+// sincronizaciones de varios minutos. Con timeout corto, cada tabla que
+// falla se salta rápido y se reintenta en la siguiente sincronización.
+// ─────────────────────────────────────────────────────────────────────────
+async function conTimeout<T = any>(promesa: PromiseLike<T>, ms = 6000): Promise<T> {
+  return Promise.race([
+    Promise.resolve(promesa),
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error('TIMEOUT_SUPABASE')), ms)
+    ),
+  ])
+}
+
 const COLUMNAS: Record<string, string[]> = {
   expedientes: [
     'id', 'materia_id', 'cliente_id', 'juzgado_id', 'juez_id',
@@ -94,11 +110,14 @@ const ORDEN_SYNC = [
 
 const TABLAS = Object.keys(COLUMNAS)
 
+let ultimaSync = 0
+const COOLDOWN_MS = 30000 // 30 segundos
+
 export async function syncConSupabase() {
   if (!navigator.onLine) return
-  // Si la conexión se cae a medio proceso, no queremos que un solo fetch
-  // roto tumbe la sincronización completa dejándola en un estado incierto;
-  // cada función interna ya es resiliente por tabla/ítem.
+  if (Date.now() - ultimaSync < COOLDOWN_MS) return
+  ultimaSync = Date.now()
+
   try {
     await subirPendientes()
   } catch (e) {
@@ -110,7 +129,6 @@ export async function syncConSupabase() {
     console.warn('Fallo descargando catálogos:', e)
   }
 }
-
 async function subirPendientes() {
   const pendientes = await query(`SELECT * FROM sync_queue ORDER BY created_at ASC`)
 
@@ -154,28 +172,30 @@ async function subirPendientes() {
           const payloadSubir = { ...payload }
           delete payloadSubir[pk]
 
-          const { data, error } = await supabase
-            .from(itemFresco.tabla)
-            .insert(payloadSubir)
-            .select(pk)
-            .single()
+          const { data, error } = await conTimeout<any>(
+            supabase.from(itemFresco.tabla).insert(payloadSubir).select(pk).single()
+          )
 
           if (error || !data) continue
 
           const idReal = (data as any)[pk]
           await reconciliarId(itemFresco.tabla, idLocal, idReal)
         } else {
-          const { error } = await supabase.from(itemFresco.tabla).upsert(payload)
+          const { error } = await conTimeout<any>(
+            supabase.from(itemFresco.tabla).upsert(payload)
+          )
           if (error) continue
         }
       } else if (itemFresco.operacion === 'delete') {
-        const { error } = await supabase.from(itemFresco.tabla).delete().eq(pk, payload[pk])
+        const { error } = await conTimeout<any>(
+          supabase.from(itemFresco.tabla).delete().eq(pk, payload[pk])
+        )
         if (error) continue
       }
 
       await run(`DELETE FROM sync_queue WHERE id = ?`, [itemFresco.id])
     } catch (e) {
-      // Error de red (fetch rechazado) al subir este item puntual.
+      // Error de red (fetch rechazado o timeout) al subir este item puntual.
       // Lo dejamos en la cola para reintentar en la próxima sincronización.
       console.warn(`Fallo subiendo item de sync_queue (tabla=${item.tabla}, id=${item.id}):`, e)
     }
@@ -186,9 +206,11 @@ async function subirAbogado(itemFresco: any) {
   const payload = JSON.parse(itemFresco.payload)
   const { id: _idLocal, ...payloadSubir } = payload
 
-  const { error } = await supabase
-    .from('expediente_abogados')
-    .upsert(payloadSubir, { onConflict: 'expediente_id,usuario_id' })
+  const { error } = await conTimeout<any>(
+    supabase
+      .from('expediente_abogados')
+      .upsert(payloadSubir, { onConflict: 'expediente_id,usuario_id' })
+  )
 
   if (error) return
   await run(`DELETE FROM sync_queue WHERE id = ?`, [itemFresco.id])
@@ -202,11 +224,13 @@ async function subirAbogado(itemFresco: any) {
 async function eliminarAbogadoSupabase(itemFresco: any) {
   const payload = JSON.parse(itemFresco.payload)
 
-  const { error } = await supabase
-    .from('expediente_abogados')
-    .delete()
-    .eq('expediente_id', payload.expediente_id)
-    .eq('usuario_id', payload.usuario_id)
+  const { error } = await conTimeout<any>(
+    supabase
+      .from('expediente_abogados')
+      .delete()
+      .eq('expediente_id', payload.expediente_id)
+      .eq('usuario_id', payload.usuario_id)
+  )
 
   if (error) return
   await run(`DELETE FROM sync_queue WHERE id = ?`, [itemFresco.id])
@@ -257,7 +281,13 @@ async function descargarFrescos() {
 
   for (const tabla of TABLAS) {
     try {
-      const { data, error } = await supabase.from(tabla).select('*')
+      // 🔧 Timeout de 6s por tabla — antes esto podía colgarse 15-30s+ por
+      // tabla con señal mala, y con 12 tablas en secuencia eso explicaba
+      // sincronizaciones de varios minutos. Ahora, tabla que no responde a
+      // tiempo se salta y se reintenta en la próxima sincronización.
+      const { data, error } = await conTimeout<any>(
+        supabase.from(tabla).select('*')
+      )
       if (error || !data) continue
 
       const colsPermitidas = COLUMNAS[tabla]
@@ -310,6 +340,8 @@ async function descargarFrescos() {
       }
 
     } catch (e) {
+      // Error de red o timeout en esta tabla puntual — se salta y sigue con
+      // la siguiente en vez de bloquear todo el ciclo de sincronización.
       console.warn(`Fallo descargando catálogo "${tabla}":`, e)
     }
   }
@@ -322,7 +354,9 @@ async function descargarFrescos() {
 }
 
 async function descargarAbogados() {
-  const { data, error } = await supabase.from('expediente_abogados').select('*')
+  const { data, error } = await conTimeout<any>(
+    supabase.from('expediente_abogados').select('*')
+  )
   if (error || !data) return
 
   // 🔧 IMPORTANTE: aquí solo se hace upsert de lo que Supabase todavía tiene.
