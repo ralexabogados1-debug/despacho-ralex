@@ -2,7 +2,7 @@ import initSqlJs, { Database } from 'sql.js';
 
 let db: Database | null = null;
 
-const VERSION_ACTUAL = 2;
+const VERSION_ACTUAL = 3;
 
 function getStorageKey(userId?: string) {
   const uid = userId ?? localStorage.getItem('juridico-current-user') ?? 'default'
