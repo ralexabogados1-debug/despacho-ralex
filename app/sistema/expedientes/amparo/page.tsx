@@ -9,9 +9,6 @@ import { leerSesionLocal } from '@/lib/authLocal'
 import { query } from '@/lib/dbHelpers'
 import ClienteAmparos from './cliente'
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 🔑 Helper: getUser con timeout — nunca lanza error (igual que dashboard/layout)
-// ─────────────────────────────────────────────────────────────────────────────
 async function getUserConTimeout(supabase: ReturnType<typeof createBrowserClient>, ms = 4000) {
   try {
     const resultado = await Promise.race([
@@ -25,11 +22,15 @@ async function getUserConTimeout(supabase: ReturnType<typeof createBrowserClient
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 📦 Carga local desde SQLite — misma forma que Supabase devuelve
-// ─────────────────────────────────────────────────────────────────────────────
 async function cargarAmparosLocales() {
-  // Juzgados (todos los que tengan materia 'Amparo' por nombre, sin depender de id fijo)
+  const sesionLocal = leerSesionLocal()
+  const emailUsuario = sesionLocal?.email ?? ''
+
+  const [usuarioActual] = await query<any>(
+    `SELECT id FROM usuarios WHERE email = ?`, [emailUsuario]
+  ).catch(() => [] as any[])
+  const usuarioId = usuarioActual?.id ?? -1
+
   const juzgadosDistrito = await query<any>(`
     SELECT j.id, j.nombre, j.ciudad
     FROM juzgados j
@@ -37,27 +38,32 @@ async function cargarAmparosLocales() {
     WHERE m.nombre = 'Amparo'
   `).catch(() => [] as any[])
 
-  // Abogados activos
   const abogados = await query<any>(`
     SELECT id, nombre_completo FROM usuarios
     WHERE rol = 'Abogado' AND activo = 1
   `).catch(() => [] as any[])
 
-  // Expedientes de amparo con sus relaciones
   const rows = await query<any>(`
     SELECT
       e.id, e.numero_expediente, e.estado, e.fecha_inicio, e.descripcion,
       c.nombre_completo AS cliente_nombre,
       j.nombre           AS juzgado_nombre,
-      j.ciudad            AS juzgado_ciudad,
+      j.ciudad           AS juzgado_ciudad,
       ea.tipo_amparo, ea.autoridad_responsable, ea.acto_reclamado,
       ea.tercero_interesado, ea.estadio_procesal, ea.proxima_audiencia
     FROM expedientes e
-    LEFT JOIN clientes            c  ON c.id  = e.cliente_id
-    LEFT JOIN juzgados            j  ON j.id  = e.juzgado_id
+    LEFT JOIN clientes            c  ON c.id = e.cliente_id
+    LEFT JOIN juzgados            j  ON j.id = e.juzgado_id
     INNER JOIN expedientes_amparo ea ON ea.expediente_id = e.id
+    WHERE (
+      e.creado_por = ?
+      OR EXISTS (
+        SELECT 1 FROM expediente_abogados ab
+        WHERE ab.expediente_id = e.id AND ab.usuario_id = ?
+      )
+    )
     ORDER BY e.created_at DESC
-  `)
+  `, [usuarioId, usuarioId])
 
   const amparosNormalizados = await Promise.all(rows.map(async (r: any) => {
     const tareas = await query<any>(
@@ -66,21 +72,21 @@ async function cargarAmparosLocales() {
       [r.id]
     )
     return {
-      id:                 r.id,
-      numero_expediente:  r.numero_expediente,
-      estado:             r.estado,
-      fecha_inicio:       r.fecha_inicio,
-      descripcion:        r.descripcion,
-      clientes:           r.cliente_nombre ? { nombre_completo: r.cliente_nombre } : null,
-      juzgados:           r.juzgado_nombre ? { nombre: r.juzgado_nombre, ciudad: r.juzgado_ciudad } : null,
-      tareas:             tareas.map((t: any) => ({ ...t, completada: !!t.completada })),
+      id:                r.id,
+      numero_expediente: r.numero_expediente,
+      estado:            r.estado,
+      fecha_inicio:      r.fecha_inicio,
+      descripcion:       r.descripcion,
+      clientes:          r.cliente_nombre ? { nombre_completo: r.cliente_nombre } : null,
+      juzgados:          r.juzgado_nombre ? { nombre: r.juzgado_nombre, ciudad: r.juzgado_ciudad } : null,
+      tareas:            tareas.map((t: any) => ({ ...t, completada: !!t.completada })),
       expedientes_amparo: {
-        tipo_amparo:            r.tipo_amparo,
-        autoridad_responsable:  r.autoridad_responsable,
-        acto_reclamado:         r.acto_reclamado,
-        tercero_interesado:     r.tercero_interesado,
-        estadio_procesal:       r.estadio_procesal,
-        proxima_audiencia:      r.proxima_audiencia,
+        tipo_amparo:           r.tipo_amparo,
+        autoridad_responsable: r.autoridad_responsable,
+        acto_reclamado:        r.acto_reclamado,
+        tercero_interesado:    r.tercero_interesado,
+        estadio_procesal:      r.estadio_procesal,
+        proxima_audiencia:     r.proxima_audiencia,
       },
     }
   }))
@@ -89,23 +95,19 @@ async function cargarAmparosLocales() {
 }
 
 export default function AmparosPage() {
-    const arranqueListo = useArranque()
+  const arranqueListo = useArranque()
   const router = useRouter()
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   )
 
-  const [juzgados, setJuzgados] = useState<any[]>([])
-  const [abogados, setAbogados] = useState<any[]>([])
-  const [amparos, setAmparos]   = useState<any[]>([])
-  const [loading, setLoading]   = useState(true)
+  const [juzgados, setJuzgados]   = useState<any[]>([])
+  const [abogados, setAbogados]   = useState<any[]>([])
+  const [amparos, setAmparos]     = useState<any[]>([])
+  const [loading, setLoading]     = useState(true)
   const [esOffline, setEsOffline] = useState(false)
 
-  // ✅ NUEVO: la carga se extrae a una función con nombre (antes vivía
-  // solo dentro del useEffect). Así puede volver a llamarse manualmente
-  // después de crear un amparo, sin duplicar la lógica ni esperar a que
-  // el componente se remonte.
   const cargar = async () => {
     const sesionLocal = leerSesionLocal()
     const cacheValido = sesionLocal && sesionLocal.expires_at > Date.now()
@@ -123,15 +125,8 @@ export default function AmparosPage() {
       setLoading(false)
     }
 
-    // 🔧 Si el navegador ya sabe que no hay conexión, ni intentamos el
-    // fetch a Supabase — evita el error de red innecesario y el ruido en
-    // consola (Failed to fetch / ERR_INTERNET_DISCONNECTED) cuando está
-    // completamente offline.
-
     const conectado = await hayConexionReal()
-    const user = conectado
-      ? await getUserConTimeout(supabase)
-      : null
+    const user = conectado ? await getUserConTimeout(supabase) : null
 
     if (!user) {
       if (!cacheValido) {
@@ -168,13 +163,13 @@ export default function AmparosPage() {
         .order('created_at', { ascending: false })
 
       const amparosNormalizados = (expedientesAmparo ?? []).map((exp: any) => ({
-        id: exp.id,
+        id:                exp.id,
         numero_expediente: exp.numero_expediente,
-        estado: exp.estado,
-        fecha_inicio: exp.fecha_inicio,
-        descripcion: exp.descripcion,
-        clientes: exp.clientes ? { nombre_completo: exp.clientes.nombre_completo } : null,
-        juzgados: exp.juzgados ? { nombre: exp.juzgados.nombre, ciudad: exp.juzgados.ciudad } : null,
+        estado:            exp.estado,
+        fecha_inicio:      exp.fecha_inicio,
+        descripcion:       exp.descripcion,
+        clientes:          exp.clientes ? { nombre_completo: exp.clientes.nombre_completo } : null,
+        juzgados:          exp.juzgados ? { nombre: exp.juzgados.nombre, ciudad: exp.juzgados.ciudad } : null,
         tareas: (exp.tareas ?? []).map((t: any) => ({
           id: t.id, fecha_vencimiento: t.fecha_vencimiento, completada: t.completada,
         })),
@@ -186,6 +181,7 @@ export default function AmparosPage() {
       setJuzgados(juzgadosDistrito ?? [])
       setAbogados(abogadosData ?? [])
       setAmparos(amparosNormalizados)
+      setEsOffline(false)
       setLoading(false)
 
     } catch (e) {
@@ -216,8 +212,7 @@ export default function AmparosPage() {
   return (
     <div style={{ padding: 'clamp(20px, 4vw, 40px) clamp(20px, 5vw, 40px)', width: '100%' }}>
       {esOffline && (
-        <div style={{
-        }}>
+        <div style={{}}>
         </div>
       )}
       <ClienteAmparos

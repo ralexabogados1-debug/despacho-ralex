@@ -6,14 +6,10 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
 import { leerSesionLocal } from '@/lib/authLocal'
-import { query, queryExpedientesPenalesLocal, queryCatalogosLocal } from '@/lib/dbHelpers'
+import { query, queryCatalogosLocal } from '@/lib/dbHelpers'
 import { syncConSupabase } from '@/lib/sync'
 import ClienteCausasPenales from './cliente'
-import { connectReactDebugChannel } from 'next/dist/server/dev/debug-channel'
 
-// ────────────────────────────────────────────────────────────────
-// 🔑 getUser con timeout (igual que en el Dashboard)
-// ────────────────────────────────────────────────────────────────
 async function getUserConTimeout(
   supabase: ReturnType<typeof createBrowserClient>,
   ms = 4000
@@ -26,19 +22,72 @@ async function getUserConTimeout(
     if (!resultado || !('data' in resultado)) return null
     return resultado.data.user ?? null
   } catch {
-    // Captura errores de red reales (offline, DNS, CORS, etc.)
-    // El "Failed to fetch" que ves en consola es solo el log
-    // automático del navegador para el fetch fallido; no es un
-    // error sin manejar de la app.
     return null
   }
 }
 
-// ────────────────────────────────────────────────────────────────
-// 🧩 Página Penal cliente‑first (funciona offline)
-// ────────────────────────────────────────────────────────────────
+async function cargarPenalesLocales() {
+  const sesionLocal = leerSesionLocal()
+  const emailUsuario = sesionLocal?.email ?? ''
+
+  const [usuarioActual] = await query<any>(
+    `SELECT id FROM usuarios WHERE email = ?`, [emailUsuario]
+  ).catch(() => [] as any[])
+  const usuarioId = usuarioActual?.id ?? -1
+
+  const rows = await query<any>(`
+    SELECT
+      e.id, e.numero_expediente, e.estado, e.caracter_cliente,
+      e.cliente_id, e.juez_id,
+      c.nombre_completo AS cliente_nombre,
+      j.nombre          AS juez_nombre
+    FROM expedientes e
+    LEFT JOIN clientes c ON c.id = e.cliente_id
+    LEFT JOIN jueces   j ON j.id = e.juez_id
+    WHERE e.id IN (SELECT expediente_id FROM expedientes_penales)
+      AND (
+        e.creado_por = ?
+        OR EXISTS (
+          SELECT 1 FROM expediente_abogados ab
+          WHERE ab.expediente_id = e.id AND ab.usuario_id = ?
+        )
+      )
+    ORDER BY e.id DESC
+  `, [usuarioId, usuarioId])
+
+  const causas = await Promise.all(rows.map(async (exp: any) => {
+    const penales = await query<any>(`
+      SELECT ep.*, mp.nombre_agencia
+      FROM expedientes_penales ep
+      LEFT JOIN ministerios_publicos mp ON mp.id = ep.ministerio_publico_id
+      WHERE ep.expediente_id = ?
+    `, [exp.id])
+
+    const tareas = await query<any>(`
+      SELECT * FROM tareas
+      WHERE expediente_id = ? AND (eliminada = 0 OR eliminada IS NULL)
+    `, [exp.id])
+
+    return {
+      id:               exp.id,
+      numero_expediente: exp.numero_expediente,
+      estado:           exp.estado,
+      caracter_cliente: exp.caracter_cliente,
+      clientes:         { nombre_completo: exp.cliente_nombre ?? null },
+      jueces:           { nombre: exp.juez_nombre ?? null },
+      expedientes_penales: penales.map((p: any) => ({
+        ...p,
+        ministerios_publicos: { nombre_agencia: p.nombre_agencia ?? null }
+      })),
+      tareas: tareas.map((t: any) => ({ ...t, completada: !!t.completada })),
+    }
+  }))
+
+  return causas
+}
+
 export default function PenalPage() {
-    const arranqueListo = useArranque()
+  const arranqueListo = useArranque()
   const router = useRouter()
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -51,8 +100,8 @@ export default function PenalPage() {
     abogados: { id: number; nombre_completo: string }[]
     causas: any[]
   } | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading]   = useState(true)
+  const [error, setError]       = useState<string | null>(null)
 
   useEffect(() => {
     if (!arranqueListo) return
@@ -60,24 +109,14 @@ export default function PenalPage() {
       const sesionLocal = leerSesionLocal()
       const cacheValido = sesionLocal && sesionLocal.expires_at > Date.now()
 
-      // 1. Si el navegador ya sabe que no hay conexión, ni intentamos el fetch.
-      //    Esto evita el error de red innecesario y el ruido en consola cuando
-      //    está completamente offline (ERR_INTERNET_DISCONNECTED).
       const conectado = await hayConexionReal()
-      const user = conectado
-        ? await getUserConTimeout(supabase)
-        : null
+      const user = conectado ? await getUserConTimeout(supabase) : null
 
       if (!user && !cacheValido) {
-        // Solo forzamos login si NO hay usuario remoto Y NO hay sesión
-        // local válida. Si hay sesión local (aunque el token remoto haya
-        // expirado o no haya red), dejamos continuar para no bloquear
-        // el uso offline.
         router.push('/login')
         return
       }
 
-      // 2. ⚡ Sincronizar cola local si hay red
       if (conectado) {
         try {
           await syncConSupabase()
@@ -86,29 +125,25 @@ export default function PenalPage() {
         }
       }
 
-      // 3. Cargar datos desde SQLite local (SIEMPRE)
       try {
-        const [catalogos, causas] = await Promise.all([
+        const [catalogos, causas, abogadosLocales] = await Promise.all([
           queryCatalogosLocal(),
-          queryExpedientesPenalesLocal(),
+          cargarPenalesLocales(),
+          query<{ id: number; nombre_completo: string }>(
+            `SELECT id, nombre_completo FROM usuarios WHERE rol = 'Abogado' AND activo = 1`
+          ),
         ])
 
-        // Obtener abogados (usuarios con rol 'Abogado')
-        const abogadosLocales = await query<{ id: number; nombre_completo: string }>(
-          `SELECT id, nombre_completo FROM usuarios WHERE rol = 'Abogado' AND activo = 1`
-        )
-
         setData({
-          jueces: catalogos.jueces ?? [],
+          jueces:      catalogos.jueces      ?? [],
           ministerios: catalogos.ministerios ?? [],
-          abogados: abogadosLocales ?? [],
-          causas: causas ?? [],
+          abogados:    abogadosLocales       ?? [],
+          causas:      causas                ?? [],
         })
         setError(null)
       } catch (err) {
         console.error('Error cargando datos locales:', err)
         setError('No se pudieron cargar los datos. Intentá recargar la página.')
-        // Dejamos data como null para que se muestre el error
         setData(null)
       } finally {
         setLoading(false)
@@ -118,24 +153,15 @@ export default function PenalPage() {
     cargar()
   }, [supabase, router, arranqueListo])
 
-  // ── Spinner de carga (sin fondo negro forzado) ──
   if (loading) {
     return (
       <div style={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        minHeight: '100vh',
-        gap: 12,
-        color: '#8fa8e0',
+        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        justifyContent: 'center', minHeight: '100vh', gap: 12, color: '#8fa8e0',
       }}>
         <div style={{
-          width: 24,
-          height: 24,
-          border: '2px solid #b3434f',
-          borderTopColor: 'transparent',
-          borderRadius: '50%',
+          width: 24, height: 24, border: '2px solid #b3434f',
+          borderTopColor: 'transparent', borderRadius: '50%',
           animation: 'spin 0.7s linear infinite',
         }} />
         <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
@@ -146,30 +172,21 @@ export default function PenalPage() {
     )
   }
 
-  // ── Error al cargar ──
   if (error || !data) {
     return (
       <div style={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        minHeight: '100vh',
-        gap: 8,
-        padding: 20,
-        textAlign: 'center',
+        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        justifyContent: 'center', minHeight: '100vh', gap: 8,
+        padding: 20, textAlign: 'center',
       }}>
-        <p style={{ color: '#dc2626', fontSize: 16, margin: 0 }}>{error || 'Error inesperado'}</p>
+        <p style={{ color: '#dc2626', fontSize: 16, margin: 0 }}>
+          {error || 'Error inesperado'}
+        </p>
         <button
           onClick={() => window.location.reload()}
           style={{
-            marginTop: 8,
-            padding: '6px 16px',
-            background: '#b3434f',
-            color: '#fff',
-            border: 'none',
-            borderRadius: 6,
-            cursor: 'pointer',
+            marginTop: 8, padding: '6px 16px', background: '#b3434f',
+            color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer',
           }}
         >
           Reintentar
@@ -178,7 +195,6 @@ export default function PenalPage() {
     )
   }
 
-  // ── Render normal del componente (usa el tema del layout) ──
   return (
     <div style={{ padding: 'clamp(20px, 4vw, 40px) clamp(20px, 5vw, 40px)', width: '100%' }}>
       <ClienteCausasPenales
