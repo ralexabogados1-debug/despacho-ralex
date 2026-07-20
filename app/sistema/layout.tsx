@@ -1,7 +1,6 @@
 'use client'
 
 import React, { useState, useEffect, createContext, useContext } from 'react'
-import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
 import { guardarSesionLocal, leerSesionLocal, renovarSesion, borrarSesionLocal } from '@/lib/authLocal'
@@ -181,7 +180,7 @@ export default function SistemaLayout({ children }: { children: React.ReactNode 
   // ─────────────────────────────────────────────────────────────────────────
   const manejarLogout = (destino: string = '/login') => {
     borrarSesionLocal()
-    router.push(destino)
+    window.location.href = destino
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -272,7 +271,7 @@ export default function SistemaLayout({ children }: { children: React.ReactNode 
       }
 
       // ── PASO 4: Sin cache y sin Supabase → login ──────────────────────────
-      router.push('/login')
+      window.location.href = '/login'
     }
 
     cargarUsuario()
@@ -349,8 +348,8 @@ export default function SistemaLayout({ children }: { children: React.ReactNode 
               const hover   = hovered === item.path
               const esAdmin = item.soloRoles?.length === 1 && item.soloRoles[0] === 'admin'
               return (
-                <Link
-                  key={item.path}
+                
+                  <a key={item.path}
                   href={item.path}
                   title={(!expandido && !isMobile) ? item.label : undefined}
                   onMouseEnter={() => setHovered(item.path)}
@@ -378,7 +377,7 @@ export default function SistemaLayout({ children }: { children: React.ReactNode 
                     {item.label}
                   </span>
                   {esAdmin && (expandido || isMobile) && <span style={styles.adminBadge}>ADMIN</span>}
-                </Link>
+                </a>
               )
             })}
           </div>
@@ -386,7 +385,7 @@ export default function SistemaLayout({ children }: { children: React.ReactNode 
       </nav>
 
       <div style={styles.sidebarBottom}>
-        <Link href="/sistema/perfil" style={styles.sidebarFooter} title="Ver mi perfil">
+        <a href="/sistema/perfil" style={styles.sidebarFooter} title="Ver mi perfil">
           <div style={styles.avatarWrap}>
             <div style={{
               ...styles.avatar,
@@ -406,7 +405,7 @@ export default function SistemaLayout({ children }: { children: React.ReactNode 
               {sesion.rol} · Ver perfil
             </div>
           </div>
-        </Link>
+        </a>
 
         <button
           onClick={handleCerrarSesion}
@@ -526,9 +525,9 @@ export default function SistemaLayout({ children }: { children: React.ReactNode 
             <footer style={styles.footerGlobal}>
               <span style={{ color: colores.textFaint, fontSize: 12 }}>© {new Date().getFullYear()} RALEX</span>
               <div className="footer-links" style={{ display: 'flex', gap: 16 }}>
-                <Link href="/sistema/perfil" style={styles.footerLink}>Mi perfil</Link>
-                <Link href="/sistema/agenda" style={styles.footerLink}>Agenda</Link>
-                <Link href="/sistema/tareas" style={styles.footerLink}>Tareas</Link>
+                <a href="/sistema/perfil" style={styles.footerLink}>Mi perfil</a>
+                <a href="/sistema/agenda" style={styles.footerLink}>Agenda</a>
+                <a href="/sistema/tareas" style={styles.footerLink}>Tareas</a>
               </div>
             </footer>
           </div>
