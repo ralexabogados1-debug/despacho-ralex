@@ -11,6 +11,8 @@ export function createClient() {
       auth: {
         autoRefreshToken: true,
         persistSession: true,
+        storageKey: 'sb-session',
+        storage: typeof window !== 'undefined' ? window.localStorage : undefined,
       }
     }
   )
