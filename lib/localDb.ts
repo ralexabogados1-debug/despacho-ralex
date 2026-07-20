@@ -1,6 +1,7 @@
 import initSqlJs, { Database } from 'sql.js';
 
 let db: Database | null = null;
+let dbPromise: Promise<Database> | null = null; // evita carreras si getDb() se llama 2 veces seguidas
 
 const VERSION_ACTUAL = 4;
 
@@ -14,29 +15,63 @@ function getVersionKey(userId?: string) {
   return `juridico-sqlite-version-${uid}`
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// ⏱️ initSqlJs con timeout — el fetch interno del .wasm no tiene timeout
+// propio, entonces con conexión inestable se puede quedar colgado para
+// siempre. Si no resuelve en 8s, lanzamos error en vez de dejarlo pegado.
+// ─────────────────────────────────────────────────────────────────────────
+async function initSqlJsConTimeout(ms = 8000) {
+  const resultado = await Promise.race([
+    initSqlJs({ locateFile: () => '/sql-wasm.wasm' }),
+    new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), ms)),
+  ])
+
+  if (resultado === 'timeout') {
+    throw new Error('TIMEOUT_WASM')
+  }
+
+  return resultado
+}
+
 export async function getDb(userId?: string): Promise<Database> {
   if (db) return db
 
-  const SQL = await initSqlJs({ locateFile: () => '/sql-wasm.wasm' })
+  // Si ya hay una carga en curso, reusarla en vez de disparar otro fetch
+  if (dbPromise) return dbPromise
 
-  const storageKey = getStorageKey(userId)
-  const versionKey = getVersionKey(userId)
+  dbPromise = (async () => {
+    let SQL
+    try {
+      SQL = await initSqlJsConTimeout()
+    } catch (err) {
+      // Limpiamos la promesa fallida para permitir reintentar después
+      dbPromise = null
+      throw new Error(
+        'No se pudo cargar el motor de base de datos local. Verifica tu conexión e inténtalo de nuevo.'
+      )
+    }
 
-  const versionGuardada = Number(localStorage.getItem(versionKey) ?? '0')
-  const versionCoincide = versionGuardada === VERSION_ACTUAL
-  const saved = versionCoincide ? localStorage.getItem(storageKey) : null
+    const storageKey = getStorageKey(userId)
+    const versionKey = getVersionKey(userId)
 
-  if (saved) {
-    const buf = Uint8Array.from(atob(saved), c => c.charCodeAt(0))
-    db = new SQL.Database(buf)
-    migrarSchema(db)
-  } else {
-    db = new SQL.Database()
-    initSchema(db)
-    localStorage.setItem(versionKey, String(VERSION_ACTUAL))
-  }
+    const versionGuardada = Number(localStorage.getItem(versionKey) ?? '0')
+    const versionCoincide = versionGuardada === VERSION_ACTUAL
+    const saved = versionCoincide ? localStorage.getItem(storageKey) : null
 
-  return db
+    if (saved) {
+      const buf = Uint8Array.from(atob(saved), c => c.charCodeAt(0))
+      db = new SQL.Database(buf)
+      migrarSchema(db)
+    } else {
+      db = new SQL.Database()
+      initSchema(db)
+      localStorage.setItem(versionKey, String(VERSION_ACTUAL))
+    }
+
+    return db
+  })()
+
+  return dbPromise
 }
 
 export function saveDb(userId?: string) {
@@ -49,6 +84,7 @@ export function saveDb(userId?: string) {
 
 export function resetDb() {
   db = null
+  dbPromise = null
 }
 
 function initSchema(db: Database) {
