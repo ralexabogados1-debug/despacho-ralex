@@ -252,20 +252,21 @@ async function reconciliarId(tablaOrigen: string, idTemporal: number, idReal: nu
 }
 
 async function descargarFrescos() {
+  // Acumula los IDs que llegaron de Supabase por tabla
+  const idsPorTabla: Record<string, number[]> = {}
+
   for (const tabla of TABLAS) {
-    // 🔧 Try/catch por tabla: si la red se cae justo al llegar a "jueces"
-    // (o cualquier otra), las tablas restantes del for siguen intentando
-    // descargarse en vez de que una sola caída de red aborte todo el resto
-    // del catálogo. Antes, un fetch rechazado aquí escapaba de la función
-    // completa sin que el resto de tablas llegara a intentarse.
     try {
       const { data, error } = await supabase.from(tabla).select('*')
       if (error || !data) continue
 
       const colsPermitidas = COLUMNAS[tabla]
       const pk = PK[tabla]
+      idsPorTabla[tabla] = []
 
       for (const row of data) {
+        idsPorTabla[tabla].push(row[pk])
+
         const [enCola] = await query(
           `SELECT id FROM sync_queue WHERE tabla = ? AND json_extract(payload,'$.${pk}') = ?`,
           [tabla, row[pk]]
@@ -291,8 +292,25 @@ async function descargarFrescos() {
           [...vals, Date.now(), Date.now()]
         )
       }
+
+      // ✅ Borra localmente lo que Supabase ya no devuelve (RLS lo quitó)
+      // pero solo si no tiene cambios pendientes de subir
+      if (idsPorTabla[tabla].length > 0) {
+        const placeholders = idsPorTabla[tabla].map(() => '?').join(',')
+        await run(
+          `DELETE FROM ${tabla}
+           WHERE ${pk} NOT IN (${placeholders})
+           AND (sync_status = 'synced' OR sync_status IS NULL)
+           AND ${pk} NOT IN (
+             SELECT json_extract(payload, '$.${pk}')
+             FROM sync_queue WHERE tabla = ?
+           )`,
+          [...idsPorTabla[tabla], tabla]
+        )
+      }
+
     } catch (e) {
-      console.warn(`Fallo descargando catálogo "${tabla}" (¿se cayó la red?):`, e)
+      console.warn(`Fallo descargando catálogo "${tabla}":`, e)
     }
   }
 
