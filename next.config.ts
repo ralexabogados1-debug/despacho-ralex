@@ -1,5 +1,7 @@
 import type { NextConfig } from "next";
 
+const buildId = Date.now().toString();
+
 const withPWA = require('@ducanh2912/next-pwa').default({
   dest: 'public',
   cacheOnFrontEndNav: false,
@@ -10,6 +12,19 @@ const withPWA = require('@ducanh2912/next-pwa').default({
   workboxOptions: {
     skipWaiting: true,
     clientsClaim: true,
+
+    additionalManifestEntries: [
+      { url: '/sistema/dashboard',          revision: buildId },
+      { url: '/sistema/expedientes/civil',  revision: buildId },
+      { url: '/sistema/expedientes/penal',  revision: buildId },
+      { url: '/sistema/expedientes/amparo', revision: buildId },
+      { url: '/sistema/tareas',             revision: buildId },
+      { url: '/sistema/agenda',             revision: buildId },
+      { url: '/sistema/perfil',             revision: buildId },
+      { url: '/sistema/usuarios',           revision: buildId },
+      { url: '/login',                      revision: buildId },
+      { url: '/offline',                    revision: buildId },
+    ],
 
     runtimeCaching: [
       // ─── PING de conectividad — nunca cachear ───────────────────────
