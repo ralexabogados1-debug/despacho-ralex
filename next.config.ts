@@ -11,11 +11,13 @@ const withPWA = require('@ducanh2912/next-pwa').default({
     skipWaiting: true,
     clientsClaim: true,
 
-    // ✅ Sin additionalManifestEntries — Next.js ya precachea los chunks
-    // automáticamente con hashes únicos por build. Las rutas las maneja
-    // NetworkFirst de la regla 3, que siempre intenta la red primero.
-
     runtimeCaching: [
+      // ─── PING de conectividad — nunca cachear ───────────────────────
+      {
+        urlPattern: ({ url }: any) => url.pathname === '/api/ping',
+        handler: 'NetworkOnly',
+      },
+
       // ─── 0. SUPABASE ────────────────────────────────────────────────
       {
         urlPattern: ({ url }: any) =>
@@ -54,9 +56,6 @@ const withPWA = require('@ducanh2912/next-pwa').default({
       },
 
       // ─── 3. NAVEGACIONES ────────────────────────────────────────────
-      // NetworkFirst: siempre intenta red, si falla sirve caché.
-      // Esto garantiza que la PWA siempre muestre la versión más nueva
-      // cuando hay conexión, y la cacheada cuando está offline.
       {
         urlPattern: ({ request }: any) => request.mode === 'navigate',
         handler: 'NetworkFirst',
@@ -71,7 +70,6 @@ const withPWA = require('@ducanh2912/next-pwa').default({
       },
 
       // ─── 4. JS Y CSS ────────────────────────────────────────────────
-      // StaleWhileRevalidate: sirve desde caché, actualiza en background.
       {
         urlPattern: ({ request }: any) =>
           request.destination === 'script' || request.destination === 'style',
