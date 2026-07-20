@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { createBrowserClient } from '@supabase/ssr'
+import { createClient } from '@/lib/supabase/client'  // ← singleton
 import {
   validarCredsLocal,
   guardarCredsLocal,
@@ -18,12 +18,11 @@ export default function FormularioLogin({
   registrado?: string
 }) {
   const router = useRouter()
+  const supabase = createClient()  // ← singleton, fuera del handler
   const [errorLocal, setErrorLocal] = useState<string | null>(null)
   const [cargando, setCargando]     = useState(true)
 
   useEffect(() => {
-    // Esperar 500ms para que navigator.onLine se estabilice
-    // antes de decidir si hay sesión válida
     const timer = setTimeout(() => {
       const sesion = leerSesionLocal()
       if (sesion && sesion.expires_at > Date.now()) {
@@ -32,7 +31,6 @@ export default function FormularioLogin({
       }
       setCargando(false)
     }, 500)
-
     return () => clearTimeout(timer)
   }, [router])
 
@@ -43,19 +41,14 @@ export default function FormularioLogin({
     const email    = formData.get('email')    as string
     const password = formData.get('password') as string
 
-    // Esperar 1s para que navigator.onLine se estabilice
-    // antes de decidir qué flujo usar (online vs offline)
     await new Promise(r => setTimeout(r, 1000))
 
-    // ─── MODO OFFLINE ─────────────────────────────────────────────────────
     if (!navigator.onLine) {
       const valido = await validarCredsLocal(email, password)
-
       if (valido) {
         const raw    = localStorage.getItem('juridico-creds')
         const parsed = JSON.parse(raw!)
         const perfil = parsed.perfil ?? {}
-
         const sesionExistente = leerSesionLocal()
         const sesion = sesionExistente ?? {
           id:         perfil.id        ?? 'offline',
@@ -66,7 +59,6 @@ export default function FormularioLogin({
           activo:     true,
           expires_at: 0,
         }
-
         guardarSesionLocal({ ...sesion, expires_at: Date.now() + 1000 * 60 * 60 * 24 * 365 })
         router.replace('/sistema/dashboard')
       } else {
@@ -76,13 +68,7 @@ export default function FormularioLogin({
       return
     }
 
-    // ─── MODO ONLINE ──────────────────────────────────────────────────────
     try {
-      const supabase = createBrowserClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-      )
-
       const { data, error: loginError } = await supabase.auth.signInWithPassword({ email, password })
 
       if (loginError || !data.user) {
@@ -97,7 +83,6 @@ export default function FormularioLogin({
       const rol       = (user.user_metadata?.rol ?? 'asistente').toLowerCase()
 
       await guardarCredsLocal(email, password, { id: user.id, nombre, rol, iniciales })
-
       guardarSesionLocal({
         id:         user.id,
         email:      user.email ?? '',
@@ -118,13 +103,7 @@ export default function FormularioLogin({
   if (cargando) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', padding: '20px 0' }}>
-        <div style={{
-          width: 22, height: 22,
-          border: '2px solid #3a5fb8',
-          borderTopColor: 'transparent',
-          borderRadius: '50%',
-          animation: 'spin 0.7s linear infinite',
-        }} />
+        <div style={{ width: 22, height: 22, border: '2px solid #3a5fb8', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
         <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
       </div>
     )
@@ -138,23 +117,16 @@ export default function FormularioLogin({
       const formData = new FormData(e.currentTarget)
       await handleSubmit(formData)
     }}>
-      {registrado && (
-        <div style={alertaExito}>✓ Cuenta creada. Ya puedes iniciar sesión.</div>
-      )}
-      {errorMostrar && (
-        <div style={alertaError}>{errorMostrar}</div>
-      )}
-
+      {registrado && <div style={alertaExito}>✓ Cuenta creada. Ya puedes iniciar sesión.</div>}
+      {errorMostrar && <div style={alertaError}>{errorMostrar}</div>}
       <div style={campo}>
         <label style={estiloLabel}>Correo electrónico</label>
         <input name="email" type="email" required placeholder="correo@ejemplo.com" style={estiloInput} />
       </div>
-
       <div style={campo}>
         <label style={estiloLabel}>Contraseña</label>
         <input name="password" type="password" required placeholder="••••••••" style={estiloInput} />
       </div>
-
       <button type="submit" disabled={cargando} style={btnPrimario}>
         Iniciar sesión
       </button>
