@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'  // ← singleton
+import { hayConexionReal } from '@/lib/checkconnection'
 import {
   validarCredsLocal,
   guardarCredsLocal,
@@ -34,6 +35,48 @@ export default function FormularioLogin({
     return () => clearTimeout(timer)
   }, [router])
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // 🔑 Login contra Supabase con timeout — si la red no responde en 6s,
+  // lo tratamos igual que "sin conexión" en vez de dejar la petición colgada.
+  // ─────────────────────────────────────────────────────────────────────────
+  async function loginConTimeout(email: string, password: string, ms = 6000) {
+    try {
+      const resultado = await Promise.race([
+        supabase.auth.signInWithPassword({ email, password }),
+        new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), ms)),
+      ])
+      return resultado
+    } catch {
+      return null
+    }
+  }
+
+  async function loginOffline(email: string, password: string, mensajeSiFalla: string) {
+    const valido = await validarCredsLocal(email, password)
+    if (valido) {
+      const raw    = localStorage.getItem('juridico-creds')
+      const parsed = JSON.parse(raw!)
+      const perfil = parsed.perfil ?? {}
+      const sesionExistente = leerSesionLocal()
+      const sesion = sesionExistente ?? {
+        id:         perfil.id        ?? 'offline',
+        email:      parsed.email,
+        nombre:     perfil.nombre    ?? parsed.email,
+        rol:        perfil.rol       ?? 'asistente',
+        iniciales:  perfil.iniciales ?? parsed.email.slice(0, 2).toUpperCase(),
+        activo:     true,
+        expires_at: 0,
+      }
+      guardarSesionLocal({ ...sesion, expires_at: Date.now() + 1000 * 60 * 60 * 24 * 365 })
+      router.replace('/sistema/dashboard')
+      return true
+    } else {
+      setErrorLocal(mensajeSiFalla)
+      setCargando(false)
+      return false
+    }
+  }
+
   async function handleSubmit(formData: FormData) {
     setCargando(true)
     setErrorLocal(null)
@@ -43,33 +86,34 @@ export default function FormularioLogin({
 
     await new Promise(r => setTimeout(r, 1000))
 
-    if (!navigator.onLine) {
-      const valido = await validarCredsLocal(email, password)
-      if (valido) {
-        const raw    = localStorage.getItem('juridico-creds')
-        const parsed = JSON.parse(raw!)
-        const perfil = parsed.perfil ?? {}
-        const sesionExistente = leerSesionLocal()
-        const sesion = sesionExistente ?? {
-          id:         perfil.id        ?? 'offline',
-          email:      parsed.email,
-          nombre:     perfil.nombre    ?? parsed.email,
-          rol:        perfil.rol       ?? 'asistente',
-          iniciales:  perfil.iniciales ?? parsed.email.slice(0, 2).toUpperCase(),
-          activo:     true,
-          expires_at: 0,
-        }
-        guardarSesionLocal({ ...sesion, expires_at: Date.now() + 1000 * 60 * 60 * 24 * 365 })
-        router.replace('/sistema/dashboard')
-      } else {
-        setErrorLocal('Sin conexión. Debes iniciar sesión al menos una vez con internet para usar el acceso offline.')
-        setCargando(false)
-      }
+    // ── PASO 1: Verificar conexión REAL, no solo navigator.onLine ──────────
+    // Cubre el caso de datos móviles prendidos pero sin señal real.
+    const conexionReal = await hayConexionReal()
+
+    if (!conexionReal) {
+      await loginOffline(
+        email,
+        password,
+        'Sin conexión a internet. Debes iniciar sesión al menos una vez con internet para usar el acceso offline.'
+      )
       return
     }
 
+    // ── PASO 2: Hay conexión real → intentar login contra Supabase ─────────
     try {
-      const { data, error: loginError } = await supabase.auth.signInWithPassword({ email, password })
+      const resultado = await loginConTimeout(email, password)
+
+      // Timeout o error de red a mitad del intento → caer a offline
+      if (resultado === 'timeout' || resultado === null) {
+        await loginOffline(
+          email,
+          password,
+          'La conexión está muy inestable y no respondió a tiempo. Verifica tu señal o inténtalo de nuevo.'
+        )
+        return
+      }
+
+      const { data, error: loginError } = resultado
 
       if (loginError || !data.user) {
         setErrorLocal(loginError?.message || 'Credenciales incorrectas.')
@@ -95,8 +139,12 @@ export default function FormularioLogin({
 
       router.replace('/sistema/dashboard')
     } catch {
-      setErrorLocal('Error de red. Inténtalo de nuevo.')
-      setCargando(false)
+      // Fallback final por si algo inesperado revienta la petición
+      await loginOffline(
+        email,
+        password,
+        'Error de red. Verifica tu conexión e inténtalo de nuevo.'
+      )
     }
   }
 
