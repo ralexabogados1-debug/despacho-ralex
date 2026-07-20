@@ -30,11 +30,18 @@ async function cargarPenalesLocales() {
   const sesionLocal = leerSesionLocal()
   const emailUsuario = sesionLocal?.email ?? ''
 
+  console.log('🔴 [PENAL] Email de sesión local:', emailUsuario)
+
   const [usuarioActual] = await query<any>(
     `SELECT id FROM usuarios WHERE email = ?`, [emailUsuario]
   ).catch(() => [] as any[])
   const usuarioId = usuarioActual?.id ?? -1
 
+  console.log('🔴 [PENAL] usuarioId resuelto:', usuarioId)
+
+  // muestra todos los usuarios en SQLite para comparar
+  const todosUsuarios = await query<any>(`SELECT id, email FROM usuarios`)
+  console.log('🔴 [PENAL] Usuarios en SQLite:', todosUsuarios)
   const rows = await query<any>(`
     SELECT
       e.id, e.numero_expediente, e.estado, e.caracter_cliente,
