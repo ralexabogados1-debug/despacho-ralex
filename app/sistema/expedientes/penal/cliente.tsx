@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import Link from 'next/link'
 import { useTema } from '@/app/sistema/layout'
 import { useExpedientes } from '@/hooks/useExpedientes'
@@ -64,14 +64,21 @@ type MP      = { id: number; nombre_agencia: string }
 type Abogado = { id: number; nombre_completo: string }
 
 export default function ClienteCausasPenales({
-  jueces, ministerios, abogados, causas,
+  jueces,
+  ministerios,
+  abogados,
+  causas,
+  onCreado, // ✅ nueva prop
 }: {
   jueces:      Juez[]
   ministerios: MP[]
   abogados:    Abogado[]
   causas:      any[]
+  onCreado?:   () => Promise<void> | void // ✅ opcional
 }) {
   const { oscuro } = useTema()
+  const T = oscuro ? T_DARK : T_LIGHT
+
   const {
     expedientes: causasLocales,
     isOnline,
@@ -80,9 +87,14 @@ export default function ClienteCausasPenales({
     recargar,
   } = useExpedientes('expedientes_penales')
 
-  const causasActivas = isOnline ? causas : causasLocales
-
-  const T = oscuro ? T_DARK : T_LIGHT
+  const causasActivas = useMemo(() => {
+    if (isOnline) {
+      const idsServidor = new Set(causas.map((c: any) => c.id))
+      const soloLocales = causasLocales.filter((c: any) => !idsServidor.has(c.id))
+      return [...causas, ...soloLocales]
+    }
+    return causasLocales ?? []
+  }, [isOnline, causas, causasLocales])
 
   const [abierto,    setAbierto]    = useState(false)
   const [busqueda,   setBusqueda]   = useState('')
@@ -92,15 +104,12 @@ export default function ClienteCausasPenales({
 
   const [abogadoActual, setAbogadoActual] = useState<{ id: number; nombre_completo: string } | null>(null)
 
-  // Colaboradores seleccionados en el formulario de creación
   const [colaboradoresForm, setColaboradoresForm] = useState<number[]>([])
 
-  // Estado para "Ver más" y "Eliminar"
   const [detalleAbierto,   setDetalleAbierto]   = useState<any | null>(null)
   const [eliminarObjetivo, setEliminarObjetivo] = useState<any | null>(null)
   const [eliminando,       setEliminando]       = useState(false)
 
-  // Colaboradores del expediente abierto en el modal de detalle
   const [colaboradoresDetalle, setColaboradoresDetalle] = useState<any[]>([])
   const [nuevoColaboradorId,   setNuevoColaboradorId]   = useState<string>('')
   const [guardandoColaborador, setGuardandoColaborador] = useState(false)
@@ -116,7 +125,6 @@ export default function ClienteCausasPenales({
     })()
   }, [])
 
-  // Carga colaboradores cada vez que se abre un detalle
   useEffect(() => {
     if (!detalleAbierto) {
       setColaboradoresDetalle([])
@@ -133,13 +141,13 @@ export default function ClienteCausasPenales({
 
   const proxTermo = (tareas: any[]) =>
     tareas
-      ?.filter(t => !t.completada && t.fecha_vencimiento)
-      .sort((a, b) => new Date(a.fecha_vencimiento).getTime() - new Date(b.fecha_vencimiento).getTime())
+      ?.filter((t: any) => !t.completada && t.fecha_vencimiento)
+      .sort((a: any, b: any) => new Date(a.fecha_vencimiento).getTime() - new Date(b.fecha_vencimiento).getTime())
       [0]?.fecha_vencimiento ?? null
 
   const esActivo = (estado: string) => estado === 'Activo'
 
-  const filtrados = causasActivas.filter(c => {
+  const filtrados = causasActivas.filter((c: any) => {
     const penal = c.expedientes_penales?.[0] ?? {}
     const term  = busqueda.toLowerCase()
     const ok =
@@ -157,12 +165,11 @@ export default function ClienteCausasPenales({
 
   const cnt = {
     todos:      causasActivas.length,
-    activos:    causasActivas.filter(c => esActivo(c.estado)).length,
-    concluidos: causasActivas.filter(c => c.estado === 'Concluido').length,
-    termino:    causasActivas.filter(c => esActivo(c.estado) && proxTermo(c.tareas) !== null).length,
+    activos:    causasActivas.filter((c: any) => esActivo(c.estado)).length,
+    concluidos: causasActivas.filter((c: any) => c.estado === 'Concluido').length,
+    termino:    causasActivas.filter((c: any) => esActivo(c.estado) && proxTermo(c.tareas) !== null).length,
   }
 
-  // Marca/desmarca un abogado en el checklist del formulario
   function alternarColaboradorForm(id: number) {
     setColaboradoresForm(prev =>
       prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
@@ -197,25 +204,26 @@ export default function ClienteCausasPenales({
         descripcion:    (formData.get('descripcion') as string) || null,
       }, usuarioLocal.id)
 
-      // Agrega colaboradores adicionales marcados en el checklist
       for (const colabId of colaboradoresForm) {
         if (colabId === usuarioLocal.id) continue
         await agregarColaboradorLocal(expedienteId, colabId, false)
       }
 
+      if (isOnline) await sincronizar()
+      else await recargar()
+
+      // ✅ Notificar al padre para refrescar los datos del servidor
+      await onCreado?.()
+
       setMensaje('Causa penal creada correctamente.')
       setAbierto(false)
       setColaboradoresForm([])
       setTimeout(() => setMensaje(null), 3000)
-
-      if (isOnline) await sincronizar()
-      else await recargar()
     } catch (e: any) {
       setError(e?.message ?? 'Error al crear la causa')
     }
   }
 
-  // Agrega un colaborador desde el modal de detalle
   async function manejarAgregarColaboradorDetalle() {
     if (!detalleAbierto || !nuevoColaboradorId) return
     setGuardandoColaborador(true)
@@ -237,7 +245,6 @@ export default function ClienteCausasPenales({
     }
   }
 
-  // Quita un colaborador desde el modal de detalle
   async function manejarQuitarColaboradorDetalle(usuarioId: number) {
     if (!detalleAbierto) return
     setGuardandoColaborador(true)
@@ -258,12 +265,6 @@ export default function ClienteCausasPenales({
     }
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Eliminar causa penal
-  // Online: borra directo en Supabase y limpia el cache local sin encolar.
-  // Offline: bloqueado en la UI (botón disabled), pero se deja el flujo local
-  // como respaldo.
-  // ─────────────────────────────────────────────────────────────────────────
   async function manejarEliminar(c: any) {
     setEliminando(true)
     setError(null)
@@ -284,6 +285,9 @@ export default function ClienteCausasPenales({
         await recargar()
       }
 
+      // ✅ Notificar al padre tras eliminar
+      await onCreado?.()
+
       setEliminarObjetivo(null)
       setDetalleAbierto(null)
       setMensaje('Causa eliminada correctamente.')
@@ -298,7 +302,6 @@ export default function ClienteCausasPenales({
 
   const s = getStyles(T, oscuro)
 
-  // Abogados disponibles para agregar como colaborador en el detalle
   const abogadosDisponiblesDetalle = abogados.filter(
     a => !colaboradoresDetalle.some(c => c.usuario_id === a.id)
   )
@@ -424,7 +427,7 @@ export default function ClienteCausasPenales({
                   </tr>
                 </thead>
                 <tbody>
-                  {filtrados.map(c => {
+                  {filtrados.map((c: any) => {
                     const penal = c.expedientes_penales?.[0] ?? {}
                     const pt    = proxTermo(c.tareas)
                     const esH   = pt === hoy
@@ -496,7 +499,7 @@ export default function ClienteCausasPenales({
 
             {/* Mobile */}
             <div className="pen-mobile" style={{ display: 'none', flexDirection: 'column' as const }}>
-              {filtrados.map(c => {
+              {filtrados.map((c: any) => {
                 const penal = c.expedientes_penales?.[0] ?? {}
                 const pt    = proxTermo(c.tareas)
                 const esH   = pt === hoy
@@ -683,7 +686,6 @@ export default function ClienteCausasPenales({
                   </Campo>
                 </Seccion>
 
-                {/* Colaboradores adicionales */}
                 <Seccion titulo="Colaboradores" icono="👥" T={T} oscuro={oscuro}>
                   <p style={{ fontSize: 11.5, color: T.textMuted, margin: '0 0 10px' }}>
                     {abogadoActual?.nombre_completo ?? 'Tú'} queda como responsable automáticamente.
@@ -768,7 +770,6 @@ export default function ClienteCausasPenales({
                       </Seccion>
                     )}
 
-                    {/* Colaboradores */}
                     <Seccion titulo="Colaboradores" icono="👥" T={T} oscuro={oscuro}>
                       {colaboradoresDetalle.length === 0 ? (
                         <p style={{ fontSize: 12, color: T.textFaint, margin: 0 }}>Sin colaboradores registrados.</p>

@@ -3,11 +3,12 @@
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useTema } from '@/app/sistema/layout'
-import { actualizarPerfilUsuario } from './actions'
+import { leerSesionLocal } from '@/lib/authLocal'
+import { query } from '@/lib/dbHelpers'
+import { hayConexionReal } from '@/lib/checkconnection'
+import { actualizarPerfilUsuario } from './actions'   // seguimos importando la server action
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 🎨 TOKENS (sin cambios)
-// ─────────────────────────────────────────────────────────────────────────────
+// ── TOKENS (sin cambios) ─────────────────────────────────────────────
 const T_DARK = {
   surface:      '#0b1220',
   border:       'rgba(255,255,255,0.06)',
@@ -62,6 +63,7 @@ export default function PerfilUsuarioCliente({ usuario, expedientes, conteoTarea
 
   const [modalAbierto, setModalAbierto] = useState(false)
   const [errorForm, setErrorForm]       = useState<string | null>(null)
+  const [guardando, setGuardando]       = useState(false)
 
   const styles = useMemo(() => getStyles(T, oscuro), [T, oscuro])
 
@@ -130,7 +132,6 @@ export default function PerfilUsuarioCliente({ usuario, expedientes, conteoTarea
           margin-bottom: 8px;
         }
 
-        /* ─── CONTENEDOR DE ACCIONES AL PIE DE PÁGINA ─── */
         .p-footer {
           display: flex;
           justify-content: flex-end;
@@ -151,7 +152,7 @@ export default function PerfilUsuarioCliente({ usuario, expedientes, conteoTarea
           }
           .p-footer button {
             width: 100%;
-            padding: 10px 16px; /* Altura cómoda para tocar con el dedo */
+            padding: 10px 16px;
           }
           .t-fila {
             grid-template-columns: 1fr 100px;
@@ -269,7 +270,7 @@ export default function PerfilUsuarioCliente({ usuario, expedientes, conteoTarea
         </div>
       </div>
 
-      {/* ─── PIE DE PÁGINA (Acciones globales) ─── */}
+      {/* ─── PIE DE PÁGINA ─── */}
       <div className="p-footer">
         <button style={styles.btnOutline}>
           Desactivar cuenta
@@ -314,9 +315,51 @@ export default function PerfilUsuarioCliente({ usuario, expedientes, conteoTarea
 
             <form action={async (fd) => {
               setErrorForm(null)
-              const res = await actualizarPerfilUsuario(fd)
-              if (res?.error) setErrorForm(res.error)
-              else setModalAbierto(false)
+              setGuardando(true)
+              const nombre = (fd.get('nombre_completo') as string)?.trim()
+              if (!nombre) {
+                setErrorForm('El nombre es obligatorio')
+                setGuardando(false)
+                return
+              }
+
+              // 1. Actualizar SIEMPRE en la base local (funciona online y offline)
+              try {
+                const sesion = leerSesionLocal()
+                if (!sesion?.email) {
+                  setErrorForm('No se pudo identificar al usuario. Vuelve a iniciar sesión.')
+                  setGuardando(false)
+                  return
+                }
+
+                await query(
+                  `UPDATE usuarios SET nombre_completo = ? WHERE email = ?`,
+                  [nombre, sesion.email]
+                )
+
+                // 2. Si hay conexión, intentar sincronizar con el servidor (no bloqueante)
+                const online = await hayConexionReal()
+                if (online) {
+                  try {
+                    // Pasamos el FormData a la server action; si la sesión de Supabase es válida, se actualizará en la nube
+                    const res = await actualizarPerfilUsuario(fd)
+                    if (res?.error) {
+                      console.warn('No se pudo sincronizar con el servidor:', res.error)
+                      // No mostramos error al usuario, ya guardamos localmente
+                    }
+                  } catch (err) {
+                    console.warn('Error al sincronizar con Supabase:', err)
+                  }
+                }
+
+                // 3. Refrescar la página para que los datos del servidor se actualicen
+                setModalAbierto(false)
+                router.refresh()
+              } catch (e: any) {
+                setErrorForm(e?.message ?? 'Error al actualizar el perfil')
+              } finally {
+                setGuardando(false)
+              }
             }}>
               <div style={{ marginBottom: 14 }}>
                 <label style={styles.label}>Nombre completo *</label>
@@ -342,8 +385,9 @@ export default function PerfilUsuarioCliente({ usuario, expedientes, conteoTarea
                   style={{ background: 'transparent', color: T.textMuted, border: 'none', cursor: 'pointer', fontSize: 13, padding: '10px 8px' }}>
                   Cancelar
                 </button>
-                <button type="submit" style={{ ...styles.btnPrimario, padding: '10px 24px' }}>
-                  Guardar cambios
+                <button type="submit" disabled={guardando}
+                  style={{ ...styles.btnPrimario, padding: '10px 24px', opacity: guardando ? 0.6 : 1 }}>
+                  {guardando ? 'Guardando...' : 'Guardar cambios'}
                 </button>
               </div>
             </form>
@@ -354,7 +398,7 @@ export default function PerfilUsuarioCliente({ usuario, expedientes, conteoTarea
   )
 }
 
-// ─── Sub-componentes (sin cambios) ────────────────────────────────────────
+// ─── Sub-componentes (sin cambios) ────────────────────────────────────
 function MateriaChip({ nombre, T }: { nombre: string; T: typeof T_DARK }) {
   const map: Record<string, { bg: string; color: string }> = {
     Civil:    { bg: T.accentAlpha, color: T.textAccent },
@@ -373,7 +417,7 @@ function EstadoChip({ estado, T }: { estado: string; T: typeof T_DARK }) {
   return <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 20, display: 'inline-block', background: esActivo ? T.greenAlpha : T.goldAlpha, color: esActivo ? T.green : T.gold }}>{estado}</span>
 }
 
-// ─── Estilos dinámicos ────────────────────────────────────────────────────
+// ─── Estilos dinámicos ────────────────────────────────────────────────
 function getStyles(T: typeof T_DARK, oscuro: boolean) {
   return {
     root: {
