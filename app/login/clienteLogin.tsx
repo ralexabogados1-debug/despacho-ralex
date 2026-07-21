@@ -23,17 +23,6 @@ export default function FormularioLogin({
   const [errorLocal, setErrorLocal] = useState<string | null>(null)
   const [cargando, setCargando]     = useState(true)
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      const sesion = leerSesionLocal()
-      if (sesion && sesion.expires_at > Date.now()) {
-        router.replace('/sistema/dashboard')
-        return
-      }
-      setCargando(false)
-    }, 500)
-    return () => clearTimeout(timer)
-  }, [router])
 
   // ─────────────────────────────────────────────────────────────────────────
   // 🔑 Login contra Supabase con timeout — si la red no responde en 6s,
