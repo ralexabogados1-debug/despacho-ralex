@@ -6,7 +6,7 @@ import { useTema } from '@/app/sistema/layout'
 import { leerSesionLocal } from '@/lib/authLocal'
 import { query } from '@/lib/dbHelpers'
 import { hayConexionReal } from '@/lib/checkconnection'
-import { actualizarPerfilUsuario } from './actions'   // seguimos importando la server action
+import { actualizarPerfilUsuario } from './actions'
 
 // ── TOKENS (sin cambios) ─────────────────────────────────────────────
 const T_DARK = {
@@ -54,9 +54,10 @@ interface PerfilProps {
   expedientes: any[]
   conteoTareas: number
   conteoEventos: number
+  onPerfilActualizado?: () => Promise<void>   // ✅ callback para refrescar los datos del padre
 }
 
-export default function PerfilUsuarioCliente({ usuario, expedientes, conteoTareas, conteoEventos }: PerfilProps) {
+export default function PerfilUsuarioCliente({ usuario, expedientes, conteoTareas, conteoEventos, onPerfilActualizado }: PerfilProps) {
   const { oscuro } = useTema()
   const T = oscuro ? T_DARK : T_LIGHT
   const router = useRouter()
@@ -314,51 +315,56 @@ export default function PerfilUsuarioCliente({ usuario, expedientes, conteoTarea
             )}
 
             <form action={async (fd) => {
-  setErrorForm(null)
-  setGuardando(true)
-  const nombre = (fd.get('nombre_completo') as string)?.trim()
-  if (!nombre) {
-    setErrorForm('El nombre es obligatorio')
-    setGuardando(false)
-    return
-  }
+              setErrorForm(null)
+              setGuardando(true)
+              const nombre = (fd.get('nombre_completo') as string)?.trim()
+              if (!nombre) {
+                setErrorForm('El nombre es obligatorio')
+                setGuardando(false)
+                return
+              }
 
-  // 1. Guardar SIEMPRE en la base local (funciona online y offline)
-  try {
-    const sesion = leerSesionLocal()
-    if (!sesion?.email) {
-      setErrorForm('No se pudo identificar al usuario. Vuelve a iniciar sesión.')
-      setGuardando(false)
-      return
-    }
+              try {
+                const sesion = leerSesionLocal()
+                if (!sesion?.email) {
+                  setErrorForm('No se pudo identificar al usuario. Vuelve a iniciar sesión.')
+                  setGuardando(false)
+                  return
+                }
 
-    await query(
-      `UPDATE usuarios SET nombre_completo = ? WHERE email = ?`,
-      [nombre, sesion.email]
-    )
+                // 1. Siempre actualizar en la base local
+                await query(
+                  `UPDATE usuarios SET nombre_completo = ? WHERE email = ?`,
+                  [nombre, sesion.email]
+                )
 
-    // 2. Si hay conexión, intentar sincronizar con el servidor (no bloqueante)
-    const online = await hayConexionReal()
-    if (online) {
-      try {
-        const res = await actualizarPerfilUsuario(fd)
-        if (res?.error) {
-          console.warn('No se pudo sincronizar con el servidor:', res.error)
-        }
-      } catch (err) {
-        console.warn('Error al sincronizar con Supabase:', err)
-      }
-    }
+                // 2. Si hay internet, intentar sincronizar con el servidor
+                const online = await hayConexionReal()
+                if (online) {
+                  try {
+                    const res = await actualizarPerfilUsuario(fd)
+                    if (res?.error) {
+                      console.warn('No se pudo sincronizar con el servidor:', res.error)
+                    }
+                  } catch (err) {
+                    console.warn('Error al sincronizar con Supabase:', err)
+                  }
+                }
 
-    // 3. Refrescar la página para que la UI se actualice
-    setModalAbierto(false)
-    router.refresh()
-  } catch (e: any) {
-    setErrorForm(e?.message ?? 'Error al actualizar el perfil')
-  } finally {
-    setGuardando(false)
-  }
-}}>
+                setModalAbierto(false)
+
+                // 3. Refrescar los datos del padre (si se proporcionó el callback)
+                if (onPerfilActualizado) {
+                  await onPerfilActualizado()
+                } else {
+                  router.refresh() // fallback por si el padre no pasó el callback
+                }
+              } catch (e: any) {
+                setErrorForm(e?.message ?? 'Error al actualizar el perfil')
+              } finally {
+                setGuardando(false)
+              }
+            }}>
               <div style={{ marginBottom: 14 }}>
                 <label style={styles.label}>Nombre completo *</label>
                 <input
