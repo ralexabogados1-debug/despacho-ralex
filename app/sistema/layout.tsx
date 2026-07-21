@@ -191,14 +191,19 @@ export default function SistemaLayout({ children }: { children: React.ReactNode 
   // aplicaciones normales".
   // ─────────────────────────────────────────────────────────────────────────
   useEffect(() => {
-    const { data: listener } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'SIGNED_OUT') {
+  const { data: listener } = supabase.auth.onAuthStateChange((event) => {
+    if (event === 'SIGNED_OUT') {
+      // Solo cerrar si NO hay sesión local válida
+      // (evita logout falso cuando Supabase no puede verificar por falta de conexión)
+      const sesionLocal = leerSesionLocal()
+      const hayCache = sesionLocal && sesionLocal.expires_at > Date.now()
+      if (!hayCache) {
         manejarLogout('/login')
       }
-    })
-    return () => listener.subscription.unsubscribe()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [supabase])
+    }
+  })
+  return () => listener.subscription.unsubscribe()
+}, [supabase])
 
   useEffect(() => {
     const cargarUsuario = async () => {
