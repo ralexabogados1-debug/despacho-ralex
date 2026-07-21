@@ -2,7 +2,7 @@
   "name": "RALEX",
   "short_name": "Jurídico",
   "description": "Sistema de gestión de expedientes legales",
-  "start_url": "/",
+  "start_url": "/login",
   "display": "standalone",
   "background_color": "#000000",
   "theme_color": "#3a5fb8",
