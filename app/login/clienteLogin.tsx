@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'  // ← singleton
+import { createClient } from '@/lib/supabase/client'
 import { hayConexionReal } from '@/lib/checkconnection'
 import {
   validarCredsLocal,
@@ -19,15 +19,10 @@ export default function FormularioLogin({
   registrado?: string
 }) {
   const router = useRouter()
-  const supabase = createClient()  // ← singleton, fuera del handler
+  const supabase = createClient()
   const [errorLocal, setErrorLocal] = useState<string | null>(null)
-  const [cargando, setCargando]     = useState(true)
+  const [cargando, setCargando]     = useState(false)  // ← false, no true
 
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // 🔑 Login contra Supabase con timeout — si la red no responde en 6s,
-  // lo tratamos igual que "sin conexión" en vez de dejar la petición colgada.
-  // ─────────────────────────────────────────────────────────────────────────
   async function loginConTimeout(email: string, password: string, ms = 6000) {
     try {
       const resultado = await Promise.race([
@@ -73,10 +68,7 @@ export default function FormularioLogin({
     const email    = formData.get('email')    as string
     const password = formData.get('password') as string
 
-    await new Promise(r => setTimeout(r, 1000))
-
-    // ── PASO 1: Verificar conexión REAL, no solo navigator.onLine ──────────
-    // Cubre el caso de datos móviles prendidos pero sin señal real.
+    // ── PASO 1: Verificar conexión REAL ────────────────────────────────────
     const conexionReal = await hayConexionReal()
 
     if (!conexionReal) {
@@ -92,7 +84,6 @@ export default function FormularioLogin({
     try {
       const resultado = await loginConTimeout(email, password)
 
-      // Timeout o error de red a mitad del intento → caer a offline
       if (resultado === 'timeout' || resultado === null) {
         await loginOffline(
           email,
@@ -128,7 +119,6 @@ export default function FormularioLogin({
 
       router.replace('/sistema/dashboard')
     } catch {
-      // Fallback final por si algo inesperado revienta la petición
       await loginOffline(
         email,
         password,
