@@ -1,7 +1,7 @@
-// next.config.js
+import type { NextConfig } from "next";
+
 const buildId = Date.now().toString();
 
-// Importa el plugin
 const withPWA = require('@ducanh2912/next-pwa').default({
   dest: 'public',
   cacheOnFrontEndNav: false,
@@ -9,14 +9,113 @@ const withPWA = require('@ducanh2912/next-pwa').default({
   reloadOnOnline: true,
   disable: process.env.NODE_ENV === 'development',
 
-  // ✅ Apunta a tu Service Worker personalizado (el polyfill se aplica ahí)
-  swSrc: 'public/sw.js',
+  workboxOptions: {
+    skipWaiting: true,
+    clientsClaim: true,
 
-  // 🧹 Ya no necesitas workboxOptions aquí; se usarán las que vienen en el swe-worker
-  // workboxOptions: { ... }
+    additionalManifestEntries: [
+      { url: '/sistema/dashboard',          revision: buildId },
+      { url: '/sistema/expedientes/civil',  revision: buildId },
+      { url: '/sistema/expedientes/penal',  revision: buildId },
+      { url: '/sistema/expedientes/amparo', revision: buildId },
+      { url: '/sistema/tareas',             revision: buildId },
+      { url: '/sistema/agenda',             revision: buildId },
+      { url: '/sistema/perfil',             revision: buildId },
+      { url: '/sistema/usuarios',           revision: buildId },
+      { url: '/login',                      revision: buildId },
+      { url: '/offline',                    revision: buildId },
+    ],
+
+    runtimeCaching: [
+      // ─── PING de conectividad — nunca cachear ───────────────────────
+      {
+        urlPattern: ({ url }: any) => url.pathname === '/api/ping',
+        handler: 'NetworkOnly',
+      },
+
+      // ─── 0. SUPABASE ────────────────────────────────────────────────
+      {
+        urlPattern: ({ url }: any) =>
+          url.origin === process.env.NEXT_PUBLIC_SUPABASE_URL,
+        handler: 'NetworkOnly',
+        options: { cacheName: 'supabase-bypass' },
+      },
+
+      // ─── 0.5 RSC ────────────────────────────────────────────────────
+      {
+        urlPattern: ({ url }: any) => url.searchParams.has('_rsc'),
+        handler: 'NetworkOnly',
+      },
+
+      // ─── 1. RAÍZ ────────────────────────────────────────────────────
+      {
+        urlPattern: ({ url }: any) => url.pathname === '/',
+        handler: 'NetworkFirst',
+        options: {
+          cacheName: 'start-url',
+          networkTimeoutSeconds: 3,
+        },
+      },
+
+      // ─── 2. WASM ────────────────────────────────────────────────────
+      {
+        urlPattern: /\.wasm$/,
+        handler: 'CacheFirst',
+        options: {
+          cacheName: 'wasm-cache',
+          expiration: {
+            maxEntries: 10,
+            maxAgeSeconds: 60 * 60 * 24 * 30,
+          },
+        },
+      },
+
+      // ─── 3. NAVEGACIONES ────────────────────────────────────────────
+      {
+        urlPattern: ({ request }: any) => request.mode === 'navigate',
+        handler: 'NetworkFirst',
+        options: {
+          cacheName: 'pages-cache',
+          networkTimeoutSeconds: 3,
+          expiration: {
+            maxEntries: 60,
+            maxAgeSeconds: 60 * 60 * 24 * 7,
+          },
+        },
+      },
+
+      // ─── 4. JS Y CSS ────────────────────────────────────────────────
+      {
+        urlPattern: ({ request }: any) =>
+          request.destination === 'script' || request.destination === 'style',
+        handler: 'StaleWhileRevalidate',
+        options: {
+          cacheName: 'static-resources',
+          expiration: {
+            maxEntries: 100,
+            maxAgeSeconds: 60 * 60 * 24 * 7,
+          },
+        },
+      },
+
+      // ─── 5. IMÁGENES Y FUENTES ──────────────────────────────────────
+      {
+        urlPattern: ({ request }: any) =>
+          request.destination === 'image' || request.destination === 'font',
+        handler: 'CacheFirst',
+        options: {
+          cacheName: 'assets-cache',
+          expiration: {
+            maxEntries: 50,
+            maxAgeSeconds: 60 * 60 * 24 * 30,
+          },
+        },
+      },
+    ],
+  },
 });
 
-const nextConfig = {
+const nextConfig: NextConfig = {
   turbopack: {},
   async headers() {
     return [
@@ -31,4 +130,4 @@ const nextConfig = {
   },
 };
 
-module.exports = withPWA(nextConfig);
+export default withPWA(nextConfig);

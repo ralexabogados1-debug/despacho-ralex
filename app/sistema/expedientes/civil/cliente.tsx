@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useTema } from '@/app/sistema/layout'
 import { useExpedientes } from '@/hooks/useExpedientes'
@@ -17,7 +17,9 @@ import { leerSesionLocal } from '@/lib/authLocal'
 import { createClient } from '@/lib/supabase/client'
 import BannerOffline from '@/components/BannerOffline'
 
-// ─── Tokens OSCUROS (Civil / Familiar – azul) ─────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// 🎨 TOKENS OSCUROS (Civil / Familiar – azul)
+// ─────────────────────────────────────────────────────────────────────────────
 const T_DARK = {
   surface:     '#0b1220',
   surfaceLow:  '#0f1828',
@@ -35,10 +37,13 @@ const T_DARK = {
   textPrimary: 'rgba(255,255,255,0.85)',
   textMuted:   'rgba(255,255,255,0.40)',
   textFaint:   'rgba(255,255,255,0.22)',
+  textAccent:  '#8fa8e0',
   bg:          '#070b14',
 }
 
-// ─── Tokens CLAROS (Civil / Familiar – azul adaptado) ─────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// 🎨 TOKENS CLAROS (Civil / Familiar – azul adaptado)
+// ─────────────────────────────────────────────────────────────────────────────
 const T_LIGHT = {
   surface:     '#ffffff',
   surfaceLow:  '#f9fafb',
@@ -56,6 +61,7 @@ const T_LIGHT = {
   textPrimary: 'rgba(0,0,0,0.85)',
   textMuted:   'rgba(0,0,0,0.50)',
   textFaint:   'rgba(0,0,0,0.30)',
+  textAccent:  '#1e3a8a',
   bg:          '#f5f7fa',
 }
 
@@ -68,13 +74,11 @@ export default function ClienteCivilFamiliar({
   juzgados,
   abogados,
   expedientes,
-  onCreado, // ✅ nueva prop
 }: {
   materias: Materia[]
   juzgados: Juzgado[]
   abogados: Abogado[]
   expedientes: any[]
-  onCreado?: () => Promise<void> | void // ✅ opcional
 }) {
   const { oscuro } = useTema()
   const T = oscuro ? T_DARK : T_LIGHT
@@ -87,15 +91,7 @@ export default function ClienteCivilFamiliar({
     recargar,
   } = useExpedientes('expedientes_civiles')
 
-  // Unión inteligente: si está online, muestra los del servidor + locales aún no sincronizados
-  const expedientesActivos = useMemo(() => {
-    if (isOnline) {
-      const idsServidor = new Set(expedientes.map((e: any) => e.id))
-      const soloLocales = expedientesLocales.filter((e: any) => !idsServidor.has(e.id))
-      return [...expedientes, ...soloLocales]
-    }
-    return expedientesLocales ?? []
-  }, [isOnline, expedientes, expedientesLocales])
+  const expedientesActivos = (isOnline ? expedientes : expedientesLocales) ?? []
 
   const [abierto,    setAbierto]    = useState(false)
   const [busqueda,   setBusqueda]   = useState('')
@@ -105,12 +101,15 @@ export default function ClienteCivilFamiliar({
 
   const [abogadoActual, setAbogadoActual] = useState<{ id: number; nombre_completo: string } | null>(null)
 
+  // Colaboradores seleccionados en el formulario de creación
   const [colaboradoresForm, setColaboradoresForm] = useState<number[]>([])
 
+  // Estado para "Ver más" y "Eliminar"
   const [detalleAbierto,   setDetalleAbierto]   = useState<any | null>(null)
   const [eliminarObjetivo, setEliminarObjetivo] = useState<any | null>(null)
   const [eliminando,       setEliminando]       = useState(false)
 
+  // Colaboradores del expediente abierto en el modal de detalle
   const [colaboradoresDetalle, setColaboradoresDetalle] = useState<any[]>([])
   const [nuevoColaboradorId,   setNuevoColaboradorId]   = useState<string>('')
   const [guardandoColaborador, setGuardandoColaborador] = useState(false)
@@ -126,6 +125,7 @@ export default function ClienteCivilFamiliar({
     })()
   }, [])
 
+  // Carga colaboradores cada vez que se abre un detalle
   useEffect(() => {
     if (!detalleAbierto) {
       setColaboradoresDetalle([])
@@ -142,13 +142,13 @@ export default function ClienteCivilFamiliar({
 
   const proxTermo = (tareas: any[]) =>
     tareas
-      ?.filter((t: any) => !t.completada && t.fecha_vencimiento)
-      .sort((a: any, b: any) => new Date(a.fecha_vencimiento).getTime() - new Date(b.fecha_vencimiento).getTime())
+      ?.filter(t => !t.completada && t.fecha_vencimiento)
+      .sort((a, b) => new Date(a.fecha_vencimiento).getTime() - new Date(b.fecha_vencimiento).getTime())
       [0]?.fecha_vencimiento ?? null
 
   const esActivo = (estado: string) => estado === 'Activo'
 
-  const filtrados = expedientesActivos.filter((exp: any) => {
+  const filtrados = expedientesActivos.filter(exp => {
     const term = busqueda.toLowerCase()
     const ok =
       exp.numero_expediente?.toLowerCase().includes(term) ||
@@ -164,11 +164,12 @@ export default function ClienteCivilFamiliar({
 
   const cnt = {
     todos:      expedientesActivos.length,
-    activos:    expedientesActivos.filter((e: any) => esActivo(e.estado)).length,
-    concluidos: expedientesActivos.filter((e: any) => e.estado === 'Concluido').length,
-    termino:    expedientesActivos.filter((e: any) => esActivo(e.estado) && proxTermo(e.tareas) !== null).length,
+    activos:    expedientesActivos.filter(e => esActivo(e.estado)).length,
+    concluidos: expedientesActivos.filter(e => e.estado === 'Concluido').length,
+    termino:    expedientesActivos.filter(e => esActivo(e.estado) && proxTermo(e.tareas) !== null).length,
   }
 
+  // Marca/desmarca un abogado en el checklist del formulario
   function alternarColaboradorForm(id: number) {
     setColaboradoresForm(prev =>
       prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
@@ -202,26 +203,25 @@ export default function ClienteCivilFamiliar({
         descripcion:           (formData.get('descripcion') as string) || null,
       }, usuarioLocal.id)
 
+      // Agrega colaboradores adicionales marcados en el checklist
       for (const colabId of colaboradoresForm) {
         if (colabId === usuarioLocal.id) continue
         await agregarColaboradorLocal(expedienteId, colabId, false)
       }
 
-      if (isOnline) await sincronizar()
-      else await recargar()
-
-      // ✅ Notificar al padre para refrescar los datos del servidor
-      await onCreado?.()
-
       setMensaje('Expediente registrado con éxito.')
       setAbierto(false)
       setColaboradoresForm([])
       setTimeout(() => setMensaje(null), 3000)
+
+      if (isOnline) await sincronizar()
+      else await recargar()
     } catch (e: any) {
       setError(e?.message ?? 'Error al crear el expediente')
     }
   }
 
+  // Agrega un colaborador desde el modal de detalle
   async function manejarAgregarColaboradorDetalle() {
     if (!detalleAbierto || !nuevoColaboradorId) return
     setGuardandoColaborador(true)
@@ -243,6 +243,7 @@ export default function ClienteCivilFamiliar({
     }
   }
 
+  // Quita un colaborador desde el modal de detalle
   async function manejarQuitarColaboradorDetalle(usuarioId: number) {
     if (!detalleAbierto) return
     setGuardandoColaborador(true)
@@ -263,6 +264,12 @@ export default function ClienteCivilFamiliar({
     }
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // Eliminar expediente
+  // Online: borra directo en Supabase y limpia el cache local sin encolar.
+  // Offline: bloqueado en la UI (botón disabled), pero se deja el flujo local
+  // como respaldo.
+  // ─────────────────────────────────────────────────────────────────────────
   async function manejarEliminar(exp: any) {
     setEliminando(true)
     setError(null)
@@ -283,9 +290,6 @@ export default function ClienteCivilFamiliar({
         await recargar()
       }
 
-      // ✅ También notificar al padre tras eliminar (opcional pero consistente)
-      await onCreado?.()
-
       setEliminarObjetivo(null)
       setDetalleAbierto(null)
       setMensaje('Expediente eliminado correctamente.')
@@ -300,6 +304,7 @@ export default function ClienteCivilFamiliar({
 
   const s = getStyles(T, oscuro)
 
+  // Abogados disponibles para agregar como colaborador en el detalle
   const abogadosDisponiblesDetalle = abogados.filter(
     a => !colaboradoresDetalle.some(c => c.usuario_id === a.id)
   )
@@ -313,6 +318,7 @@ export default function ClienteCivilFamiliar({
         .civ-form-row { flex-wrap: wrap; }
         .civ-col-form { flex: 1 1 220px; }
         .civ-busqueda-wrapper { flex: 1 1 200px; width: auto; }
+        .civ-desktop   { width: 100%; overflow-x: auto; }
 
         @media (max-width: 700px) {
           .civ-header   { flex-direction: column !important; align-items: stretch !important; gap: 12px !important; }
@@ -413,6 +419,7 @@ export default function ClienteCivilFamiliar({
           </div>
         ) : (
           <>
+            {/* Desktop */}
             <div className="civ-desktop">
               <table style={s.table}>
                 <thead>
@@ -423,7 +430,7 @@ export default function ClienteCivilFamiliar({
                   </tr>
                 </thead>
                 <tbody>
-                  {filtrados.map((exp: any) => {
+                  {filtrados.map(exp => {
                     const pt  = proxTermo(exp.tareas)
                     const esH = pt === hoy
                     const venc = pt && pt < hoy
@@ -489,8 +496,9 @@ export default function ClienteCivilFamiliar({
               </table>
             </div>
 
+            {/* Mobile */}
             <div className="civ-mobile" style={{ display: 'none', flexDirection: 'column' as const }}>
-              {filtrados.map((exp: any) => {
+              {filtrados.map(exp => {
                 const pt   = proxTermo(exp.tareas)
                 const esH  = pt === hoy
                 const venc = pt && pt < hoy
@@ -669,6 +677,7 @@ export default function ClienteCivilFamiliar({
                   </Campo>
                 </Seccion>
 
+                {/* Colaboradores adicionales */}
                 <Seccion titulo="Colaboradores" icono="👥" T={T} oscuro={oscuro}>
                   <p style={{ fontSize: 11.5, color: T.textMuted, margin: '0 0 10px' }}>
                     {abogadoActual?.nombre_completo ?? 'Tú'} queda como responsable automáticamente.
@@ -747,6 +756,7 @@ export default function ClienteCivilFamiliar({
                 </Seccion>
               )}
 
+              {/* Colaboradores */}
               <Seccion titulo="Colaboradores" icono="👥" T={T} oscuro={oscuro}>
                 {colaboradoresDetalle.length === 0 ? (
                   <p style={{ fontSize: 12, color: T.textFaint, margin: 0 }}>Sin colaboradores registrados.</p>
@@ -918,7 +928,7 @@ function DetalleFila({ label, valor, T }: { label: string; valor: any; T: typeof
   )
 }
 
-// ─── Estilos ──────────────────────────────────────────────────────────────
+// ─── Función generadora de estilos dinámica ────────────────────────────
 const getStyles = (T: typeof T_DARK, oscuro: boolean) => ({
   root: {
     width: '100%',

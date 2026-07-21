@@ -2,7 +2,7 @@
 
 import { hayConexionReal } from '@/lib/checkconnection'
 import { useArranque } from '@/hooks/useArranque'
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
 import { leerSesionLocal } from '@/lib/authLocal'
@@ -10,7 +10,6 @@ import { query, queryCatalogosLocal } from '@/lib/dbHelpers'
 import { syncConSupabase } from '@/lib/sync'
 import ClienteCausasPenales from './cliente'
 
-// ─── Helper: getUser con timeout (no se modifica) ───────────────────
 async function getUserConTimeout(
   supabase: ReturnType<typeof createBrowserClient>,
   ms = 4000
@@ -27,16 +26,22 @@ async function getUserConTimeout(
   }
 }
 
-// ─── Función que carga causas penales desde la base local ────────────
 async function cargarPenalesLocales() {
   const sesionLocal = leerSesionLocal()
   const emailUsuario = sesionLocal?.email ?? ''
+
+  console.log('🔴 [PENAL] Email de sesión local:', emailUsuario)
 
   const [usuarioActual] = await query<any>(
     `SELECT id FROM usuarios WHERE email = ?`, [emailUsuario]
   ).catch(() => [] as any[])
   const usuarioId = usuarioActual?.id ?? -1
 
+  console.log('🔴 [PENAL] usuarioId resuelto:', usuarioId)
+
+  // muestra todos los usuarios en SQLite para comparar
+  const todosUsuarios = await query<any>(`SELECT id, email FROM usuarios`)
+  console.log('🔴 [PENAL] Usuarios en SQLite:', todosUsuarios)
   const rows = await query<any>(`
     SELECT
       e.id, e.numero_expediente, e.estado, e.caracter_cliente,
@@ -105,48 +110,44 @@ export default function PenalPage() {
   const [loading, setLoading]   = useState(true)
   const [error, setError]       = useState<string | null>(null)
 
-  // ─── Función de recarga de datos (reutilizable) ─────────────────────
-  const cargarDatos = useCallback(async () => {
-    const sesionLocal = leerSesionLocal()
-    const cacheValido = sesionLocal && sesionLocal.expires_at > Date.now()
-    const conectado = await hayConexionReal()
-    const user = conectado ? await getUserConTimeout(supabase) : null
-
-    if (!user && !cacheValido) {
-      router.push('/login')
-      return
-    }
-
-    if (conectado) {
-      try {
-        await syncConSupabase()
-      } catch (e) {
-        console.warn('Fallo en sincronización:', e)
-      }
-    }
-
-    const [catalogos, causas, abogadosLocales] = await Promise.all([
-      queryCatalogosLocal(),
-      cargarPenalesLocales(),
-      query<{ id: number; nombre_completo: string }>(
-        `SELECT id, nombre_completo FROM usuarios WHERE rol = 'Abogado' AND activo = 1`
-      ),
-    ])
-
-    setData({
-      jueces:      catalogos.jueces      ?? [],
-      ministerios: catalogos.ministerios ?? [],
-      abogados:    abogadosLocales       ?? [],
-      causas:      causas                ?? [],
-    })
-    setError(null)
-  }, [supabase, router])
-
   useEffect(() => {
     if (!arranqueListo) return
-    const inicializar = async () => {
+    const cargar = async () => {
+      const sesionLocal = leerSesionLocal()
+      const cacheValido = sesionLocal && sesionLocal.expires_at > Date.now()
+
+      const conectado = await hayConexionReal()
+      const user = conectado ? await getUserConTimeout(supabase) : null
+
+      if (!user && !cacheValido) {
+        router.push('/login')
+        return
+      }
+
+      if (conectado) {
+        try {
+          await syncConSupabase()
+        } catch (e) {
+          console.warn('Fallo en sincronización:', e)
+        }
+      }
+
       try {
-        await cargarDatos()
+        const [catalogos, causas, abogadosLocales] = await Promise.all([
+          queryCatalogosLocal(),
+          cargarPenalesLocales(),
+          query<{ id: number; nombre_completo: string }>(
+            `SELECT id, nombre_completo FROM usuarios WHERE rol = 'Abogado' AND activo = 1`
+          ),
+        ])
+
+        setData({
+          jueces:      catalogos.jueces      ?? [],
+          ministerios: catalogos.ministerios ?? [],
+          abogados:    abogadosLocales       ?? [],
+          causas:      causas                ?? [],
+        })
+        setError(null)
       } catch (err) {
         console.error('Error cargando datos locales:', err)
         setError('No se pudieron cargar los datos. Intentá recargar la página.')
@@ -155,8 +156,9 @@ export default function PenalPage() {
         setLoading(false)
       }
     }
-    inicializar()
-  }, [arranqueListo, cargarDatos])
+
+    cargar()
+  }, [supabase, router, arranqueListo])
 
   if (loading) {
     return (
@@ -207,7 +209,6 @@ export default function PenalPage() {
         ministerios={data.ministerios}
         abogados={data.abogados}
         causas={data.causas}
-        onCreado={cargarDatos} 
       />
     </div>
   )
