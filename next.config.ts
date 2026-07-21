@@ -2,6 +2,10 @@ import type { NextConfig } from "next";
 
 const buildId = Date.now().toString();
 
+const SUPABASE_ORIGIN = process.env.NEXT_PUBLIC_SUPABASE_URL
+  ? new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).origin
+  : '';
+
 const withPWA = require('@ducanh2912/next-pwa').default({
   dest: 'public',
   cacheOnFrontEndNav: false,
@@ -34,9 +38,11 @@ const withPWA = require('@ducanh2912/next-pwa').default({
       },
 
       // ─── 0. SUPABASE ────────────────────────────────────────────────
+      // ✅ SUPABASE_ORIGIN se resuelve en build time, no usa process.env
+      // dentro del SW (lo cual causaba "process is not defined").
       {
         urlPattern: ({ url }: any) =>
-          url.origin === process.env.NEXT_PUBLIC_SUPABASE_URL,
+          SUPABASE_ORIGIN !== '' && url.origin === SUPABASE_ORIGIN,
         handler: 'NetworkOnly',
         options: { cacheName: 'supabase-bypass' },
       },

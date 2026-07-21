@@ -187,11 +187,14 @@ async function subirPendientes() {
           if (error) continue
         }
       } else if (itemFresco.operacion === 'delete') {
-        const { error } = await conTimeout<any>(
-          supabase.from(itemFresco.tabla).delete().eq(pk, payload[pk])
-        )
-        if (error) continue
-      }
+  const { error } = await conTimeout<any>(
+    supabase.from(itemFresco.tabla).delete().eq(pk, payload[pk])
+  )
+  if (error) {
+    console.error(`❌ Error eliminando ${itemFresco.tabla}:`, error, payload)
+    continue
+  }
+}
 
       await run(`DELETE FROM sync_queue WHERE id = ?`, [itemFresco.id])
     } catch (e) {

@@ -680,7 +680,10 @@ export async function crearExpedienteCivilLocal(
 // ✍️ Creación offline de un expediente Amparo completo:
 // clientes → expedientes → expedientes_amparo → expediente_abogados (opcional)
 // ─────────────────────────────────────────────────────────────────────────
-const MATERIA_ID_AMPARO = 4
+// ─────────────────────────────────────────────────────────────────────────
+// ✍️ Creación offline de un expediente Amparo completo:
+// clientes → expedientes → expedientes_amparo → expediente_abogados (opcional)
+// ─────────────────────────────────────────────────────────────────────────
 
 type DatosExpedienteAmparo = {
   cliente_nombre: string // Quejoso
@@ -703,6 +706,20 @@ export async function crearExpedienteAmparoLocal(
   creadoPorId: number | null
 ): Promise<{ expedienteId: number }> {
   const ahora = Date.now()
+
+  // ⚠️ CORREGIDO: antes usábamos un id fijo (MATERIA_ID_AMPARO = 4) que
+  // asumía coincidir con el id real de "Amparo" en la tabla `materias` de
+  // Supabase. Si ese id real era distinto, el expediente se creaba y
+  // sincronizaba bien, pero la consulta online (page.tsx) filtra por
+  // materia_id = id real de "Amparo", así que el expediente jamás aparecía
+  // aunque sí existía en la base. Ahora se resuelve dinámicamente desde
+  // la tabla local `materias` (ya replicada vía initSchema/migrarSchema).
+  const [materiaAmparo] = await query<{ id: number }>(
+    `SELECT id FROM materias WHERE nombre = 'Amparo'`
+  ).catch(() => [] as any[])
+  const materiaId = materiaAmparo?.id ?? null
+
+  // 1. Cliente (Quejoso)
 
   // 1. Cliente (Quejoso)
   const idClienteTemp = generarIdTemporal()
@@ -727,7 +744,7 @@ export async function crearExpedienteAmparoLocal(
   const idExpedienteTemp = generarIdTemporal()
   const expediente = {
     id: idExpedienteTemp,
-    materia_id: MATERIA_ID_AMPARO,
+    materia_id: materiaId,
     cliente_id: idClienteTemp,
     juzgado_id: datos.juzgado_id,
     juez_id: null,
