@@ -2,11 +2,6 @@ import type { NextConfig } from "next";
 
 const buildId = Date.now().toString();
 
-// ── Resolver el origin de Supabase en build time, como STRING literal ──
-// (nunca uses process.env dentro de una función urlPattern: Workbox
-// serializa la función como texto y process no existe en el navegador)
-const SUPABASE_ORIGIN = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!).origin;
-
 const withPWA = require('@ducanh2912/next-pwa').default({
   dest: 'public',
   cacheOnFrontEndNav: false,
@@ -19,8 +14,16 @@ const withPWA = require('@ducanh2912/next-pwa').default({
     clientsClaim: true,
 
     additionalManifestEntries: [
-      { url: '/login',   revision: buildId },
-      { url: '/offline', revision: buildId },
+      { url: '/sistema/dashboard',          revision: buildId },
+      { url: '/sistema/expedientes/civil',  revision: buildId },
+      { url: '/sistema/expedientes/penal',  revision: buildId },
+      { url: '/sistema/expedientes/amparo', revision: buildId },
+      { url: '/sistema/tareas',             revision: buildId },
+      { url: '/sistema/agenda',             revision: buildId },
+      { url: '/sistema/perfil',             revision: buildId },
+      { url: '/sistema/usuarios',           revision: buildId },
+      { url: '/login',                      revision: buildId },
+      { url: '/offline',                    revision: buildId },
     ],
 
     runtimeCaching: [
@@ -32,7 +35,8 @@ const withPWA = require('@ducanh2912/next-pwa').default({
 
       // ─── 0. SUPABASE ────────────────────────────────────────────────
       {
-        urlPattern: new RegExp(`^${SUPABASE_ORIGIN}`),
+        urlPattern: ({ url }: any) =>
+          url.origin === process.env.NEXT_PUBLIC_SUPABASE_URL,
         handler: 'NetworkOnly',
         options: { cacheName: 'supabase-bypass' },
       },
@@ -66,14 +70,7 @@ const withPWA = require('@ducanh2912/next-pwa').default({
         },
       },
 
-      // ─── 3. RUTAS DEL SISTEMA → siempre red, nunca caché ───────────
-      // El layout maneja el offline con sesión local
-      {
-        urlPattern: ({ url }: any) => url.pathname.startsWith('/sistema'),
-        handler: 'NetworkOnly',
-      },
-
-      // ─── 4. RESTO DE NAVEGACIONES (login, registro, etc.) ───────────
+      // ─── 3. NAVEGACIONES ────────────────────────────────────────────
       {
         urlPattern: ({ request }: any) => request.mode === 'navigate',
         handler: 'NetworkFirst',
@@ -81,13 +78,13 @@ const withPWA = require('@ducanh2912/next-pwa').default({
           cacheName: 'pages-cache',
           networkTimeoutSeconds: 3,
           expiration: {
-            maxEntries: 20,
+            maxEntries: 60,
             maxAgeSeconds: 60 * 60 * 24 * 7,
           },
         },
       },
 
-      // ─── 5. JS Y CSS ────────────────────────────────────────────────
+      // ─── 4. JS Y CSS ────────────────────────────────────────────────
       {
         urlPattern: ({ request }: any) =>
           request.destination === 'script' || request.destination === 'style',
@@ -101,7 +98,7 @@ const withPWA = require('@ducanh2912/next-pwa').default({
         },
       },
 
-      // ─── 6. IMÁGENES Y FUENTES ──────────────────────────────────────
+      // ─── 5. IMÁGENES Y FUENTES ──────────────────────────────────────
       {
         urlPattern: ({ request }: any) =>
           request.destination === 'image' || request.destination === 'font',
