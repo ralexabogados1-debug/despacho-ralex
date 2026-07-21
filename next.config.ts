@@ -2,6 +2,11 @@ import type { NextConfig } from "next";
 
 const buildId = Date.now().toString();
 
+// ── Resolver el origin de Supabase en build time, como STRING literal ──
+// (nunca uses process.env dentro de una función urlPattern: Workbox
+// serializa la función como texto y process no existe en el navegador)
+const SUPABASE_ORIGIN = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!).origin;
+
 const withPWA = require('@ducanh2912/next-pwa').default({
   dest: 'public',
   cacheOnFrontEndNav: false,
@@ -27,8 +32,7 @@ const withPWA = require('@ducanh2912/next-pwa').default({
 
       // ─── 0. SUPABASE ────────────────────────────────────────────────
       {
-        urlPattern: ({ url }: any) =>
-          url.origin === process.env.NEXT_PUBLIC_SUPABASE_URL,
+        urlPattern: new RegExp(`^${SUPABASE_ORIGIN}`),
         handler: 'NetworkOnly',
         options: { cacheName: 'supabase-bypass' },
       },
