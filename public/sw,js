@@ -1,0 +1,14 @@
+// public/sw.js
+// Polyfill para evitar "process is not defined"
+if (typeof process === 'undefined') {
+  self.process = { env: {} };
+}
+
+// Importa el precache y las rutas desde el workbox precargado
+importScripts('/swe-worker-5c72df51bb1f6ee0.js');
+
+// Workbox se registra automáticamente al importar el script de precache
+// El archivo swe-worker contiene toda la lógica de precacheado y runtimeCaching
+// Solo añadimos el polyfill arriba y forzamos la recarga de los workers previos
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', () => self.clientsClaim());

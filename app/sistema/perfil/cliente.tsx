@@ -314,53 +314,51 @@ export default function PerfilUsuarioCliente({ usuario, expedientes, conteoTarea
             )}
 
             <form action={async (fd) => {
-              setErrorForm(null)
-              setGuardando(true)
-              const nombre = (fd.get('nombre_completo') as string)?.trim()
-              if (!nombre) {
-                setErrorForm('El nombre es obligatorio')
-                setGuardando(false)
-                return
-              }
+  setErrorForm(null)
+  setGuardando(true)
+  const nombre = (fd.get('nombre_completo') as string)?.trim()
+  if (!nombre) {
+    setErrorForm('El nombre es obligatorio')
+    setGuardando(false)
+    return
+  }
 
-              // 1. Actualizar SIEMPRE en la base local (funciona online y offline)
-              try {
-                const sesion = leerSesionLocal()
-                if (!sesion?.email) {
-                  setErrorForm('No se pudo identificar al usuario. Vuelve a iniciar sesión.')
-                  setGuardando(false)
-                  return
-                }
+  // 1. Guardar SIEMPRE en la base local (funciona online y offline)
+  try {
+    const sesion = leerSesionLocal()
+    if (!sesion?.email) {
+      setErrorForm('No se pudo identificar al usuario. Vuelve a iniciar sesión.')
+      setGuardando(false)
+      return
+    }
 
-                await query(
-                  `UPDATE usuarios SET nombre_completo = ? WHERE email = ?`,
-                  [nombre, sesion.email]
-                )
+    await query(
+      `UPDATE usuarios SET nombre_completo = ? WHERE email = ?`,
+      [nombre, sesion.email]
+    )
 
-                // 2. Si hay conexión, intentar sincronizar con el servidor (no bloqueante)
-                const online = await hayConexionReal()
-                if (online) {
-                  try {
-                    // Pasamos el FormData a la server action; si la sesión de Supabase es válida, se actualizará en la nube
-                    const res = await actualizarPerfilUsuario(fd)
-                    if (res?.error) {
-                      console.warn('No se pudo sincronizar con el servidor:', res.error)
-                      // No mostramos error al usuario, ya guardamos localmente
-                    }
-                  } catch (err) {
-                    console.warn('Error al sincronizar con Supabase:', err)
-                  }
-                }
+    // 2. Si hay conexión, intentar sincronizar con el servidor (no bloqueante)
+    const online = await hayConexionReal()
+    if (online) {
+      try {
+        const res = await actualizarPerfilUsuario(fd)
+        if (res?.error) {
+          console.warn('No se pudo sincronizar con el servidor:', res.error)
+        }
+      } catch (err) {
+        console.warn('Error al sincronizar con Supabase:', err)
+      }
+    }
 
-                // 3. Refrescar la página para que los datos del servidor se actualicen
-                setModalAbierto(false)
-                router.refresh()
-              } catch (e: any) {
-                setErrorForm(e?.message ?? 'Error al actualizar el perfil')
-              } finally {
-                setGuardando(false)
-              }
-            }}>
+    // 3. Refrescar la página para que la UI se actualice
+    setModalAbierto(false)
+    router.refresh()
+  } catch (e: any) {
+    setErrorForm(e?.message ?? 'Error al actualizar el perfil')
+  } finally {
+    setGuardando(false)
+  }
+}}>
               <div style={{ marginBottom: 14 }}>
                 <label style={styles.label}>Nombre completo *</label>
                 <input
