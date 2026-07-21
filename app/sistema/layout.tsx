@@ -192,11 +192,11 @@ export default function SistemaLayout({ children }: { children: React.ReactNode 
   // ─────────────────────────────────────────────────────────────────────────
   useEffect(() => {
   const { data: listener } = supabase.auth.onAuthStateChange((event) => {
+    console.log('🔐 Auth event:', event)
     if (event === 'SIGNED_OUT') {
-      // Solo cerrar si NO hay sesión local válida
-      // (evita logout falso cuando Supabase no puede verificar por falta de conexión)
       const sesionLocal = leerSesionLocal()
       const hayCache = sesionLocal && sesionLocal.expires_at > Date.now()
+      console.log('🔐 SIGNED_OUT detectado — sesionLocal:', sesionLocal, '| hayCache:', hayCache)
       if (!hayCache) {
         manejarLogout('/login')
       }
@@ -207,10 +207,11 @@ export default function SistemaLayout({ children }: { children: React.ReactNode 
 
   useEffect(() => {
     const cargarUsuario = async () => {
-      // ── PASO 1: Cache primero — respuesta instantánea sin red ──────────────
-      // Igual que Claude, Mercado Libre, etc.: si hay sesión guardada, entra ya.
-      const sesionLocal = leerSesionLocal()
-      const cacheValido = sesionLocal && sesionLocal.expires_at > Date.now()
+  const sesionLocal = leerSesionLocal()
+  console.log('🔄 cargarUsuario — sesionLocal:', sesionLocal)
+  const cacheValido = sesionLocal && sesionLocal.expires_at > Date.now()
+  console.log('🔄 cacheValido:', cacheValido)
+  // ... resto del código
 
       if (cacheValido) {
         // Sesión local válida → mostrar UI inmediatamente
