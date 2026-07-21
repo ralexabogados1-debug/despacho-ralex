@@ -14,16 +14,8 @@ const withPWA = require('@ducanh2912/next-pwa').default({
     clientsClaim: true,
 
     additionalManifestEntries: [
-      { url: '/sistema/dashboard',          revision: buildId },
-      { url: '/sistema/expedientes/civil',  revision: buildId },
-      { url: '/sistema/expedientes/penal',  revision: buildId },
-      { url: '/sistema/expedientes/amparo', revision: buildId },
-      { url: '/sistema/tareas',             revision: buildId },
-      { url: '/sistema/agenda',             revision: buildId },
-      { url: '/sistema/perfil',             revision: buildId },
-      { url: '/sistema/usuarios',           revision: buildId },
-      { url: '/login',                      revision: buildId },
-      { url: '/offline',                    revision: buildId },
+      { url: '/login',   revision: buildId },
+      { url: '/offline', revision: buildId },
     ],
 
     runtimeCaching: [
@@ -70,7 +62,14 @@ const withPWA = require('@ducanh2912/next-pwa').default({
         },
       },
 
-      // ─── 3. NAVEGACIONES ────────────────────────────────────────────
+      // ─── 3. RUTAS DEL SISTEMA → siempre red, nunca caché ───────────
+      // El layout maneja el offline con sesión local
+      {
+        urlPattern: ({ url }: any) => url.pathname.startsWith('/sistema'),
+        handler: 'NetworkOnly',
+      },
+
+      // ─── 4. RESTO DE NAVEGACIONES (login, registro, etc.) ───────────
       {
         urlPattern: ({ request }: any) => request.mode === 'navigate',
         handler: 'NetworkFirst',
@@ -78,13 +77,13 @@ const withPWA = require('@ducanh2912/next-pwa').default({
           cacheName: 'pages-cache',
           networkTimeoutSeconds: 3,
           expiration: {
-            maxEntries: 60,
+            maxEntries: 20,
             maxAgeSeconds: 60 * 60 * 24 * 7,
           },
         },
       },
 
-      // ─── 4. JS Y CSS ────────────────────────────────────────────────
+      // ─── 5. JS Y CSS ────────────────────────────────────────────────
       {
         urlPattern: ({ request }: any) =>
           request.destination === 'script' || request.destination === 'style',
@@ -98,7 +97,7 @@ const withPWA = require('@ducanh2912/next-pwa').default({
         },
       },
 
-      // ─── 5. IMÁGENES Y FUENTES ──────────────────────────────────────
+      // ─── 6. IMÁGENES Y FUENTES ──────────────────────────────────────
       {
         urlPattern: ({ request }: any) =>
           request.destination === 'image' || request.destination === 'font',
