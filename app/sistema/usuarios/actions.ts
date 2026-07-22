@@ -25,15 +25,21 @@ export async function cambiarEstadoUsuario(usuarioId: number, nuevoEstado: boole
     return { error: 'No tienes permisos para realizar esta acción' }
   }
 
-  const { error } = await supabase
-    .from('usuarios')
-    .update({ activo: nuevoEstado })
-    .eq('id', usuarioId)
+  const { data, error } = await supabase
+  .from('usuarios')
+  .update({ activo: nuevoEstado })
+  .eq('id', usuarioId)
+  .select()
 
-  if (error) {
-    return { error: error.message }
-  }
+if (error) {
+  return { error: error.message }
+}
 
-  revalidatePath('/sistema/usuarios')
-  return { success: true }
+// 🔧 Si RLS bloquea el update, Postgres no regresa error — solo 0 filas.
+if (!data || data.length === 0) {
+  return { error: 'No se pudo actualizar (posible bloqueo de RLS en la tabla usuarios).' }
+}
+
+revalidatePath('/sistema/usuarios')
+return { success: true }
 }

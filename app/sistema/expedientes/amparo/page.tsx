@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
 import { leerSesionLocal } from '@/lib/authLocal'
 import { query } from '@/lib/dbHelpers'
+import { syncConSupabase } from '@/lib/sync'
 import ClienteAmparos from './cliente'
 
 async function getUserConTimeout(supabase: ReturnType<typeof createBrowserClient>, ms = 4000) {
@@ -102,17 +103,17 @@ export default function AmparosPage() {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   )
 
-  const [juzgados, setJuzgados]   = useState<any[]>([])
-  const [abogados, setAbogados]   = useState<any[]>([])
-  const [amparos, setAmparos]     = useState<any[]>([])
-  const [loading, setLoading]     = useState(true)
+  const [juzgados, setJuzgados] = useState<any[]>([])
+  const [abogados, setAbogados] = useState<any[]>([])
+  const [amparos,  setAmparos]  = useState<any[]>([])
+  const [loading,  setLoading]  = useState(true)
   const [esOffline, setEsOffline] = useState(false)
 
   const cargar = async () => {
     const sesionLocal = leerSesionLocal()
     const cacheValido = sesionLocal && sesionLocal.expires_at > Date.now()
 
-    const usarDatosLocales = async () => {
+    const usarDatosLocales = async (offline = true) => {
       try {
         const local = await cargarAmparosLocales()
         setJuzgados(local.juzgadosDistrito)
@@ -121,7 +122,7 @@ export default function AmparosPage() {
       } catch (e) {
         console.error('SQLite error (amparo):', e)
       }
-      setEsOffline(true)
+      setEsOffline(offline)
       setLoading(false)
     }
 
@@ -133,65 +134,18 @@ export default function AmparosPage() {
         router.push('/login')
         return
       }
-      await usarDatosLocales()
+      await usarDatosLocales(true)
       return
     }
 
+    // ✅ Con conexión: sincroniza primero, luego lee de SQLite local
     try {
-      const { data: materiaAmparo } = await supabase
-        .from('materias').select('id').eq('nombre', 'Amparo').single()
-
-      const { data: juzgadosDistrito } = await supabase
-        .from('juzgados').select('id, nombre, ciudad').eq('materia_id', materiaAmparo?.id ?? -1)
-
-      const { data: abogadosData } = await supabase
-        .from('usuarios').select('id, nombre_completo').eq('rol', 'Abogado').eq('activo', true)
-
-      const { data: expedientesAmparo } = await supabase
-        .from('expedientes')
-        .select(`
-          id, numero_expediente, estado, fecha_inicio, descripcion,
-          clientes ( nombre_completo ),
-          juzgados ( nombre, ciudad ),
-          tareas ( id, fecha_vencimiento, completada ),
-          expedientes_amparo (
-            tipo_amparo, autoridad_responsable, acto_reclamado, tercero_interesado,
-            estadio_procesal, proxima_audiencia
-          )
-        `)
-        .eq('materia_id', materiaAmparo?.id ?? -1)
-        .order('created_at', { ascending: false })
-
-      const amparosNormalizados = (expedientesAmparo ?? []).map((exp: any) => ({
-        id:                exp.id,
-        numero_expediente: exp.numero_expediente,
-        estado:            exp.estado,
-        fecha_inicio:      exp.fecha_inicio,
-        descripcion:       exp.descripcion,
-        clientes:          exp.clientes ? { nombre_completo: exp.clientes.nombre_completo } : null,
-        juzgados:          exp.juzgados ? { nombre: exp.juzgados.nombre, ciudad: exp.juzgados.ciudad } : null,
-        tareas: (exp.tareas ?? []).map((t: any) => ({
-          id: t.id, fecha_vencimiento: t.fecha_vencimiento, completada: t.completada,
-        })),
-        expedientes_amparo: Array.isArray(exp.expedientes_amparo)
-          ? (exp.expedientes_amparo[0] ?? null)
-          : exp.expedientes_amparo,
-      }))
-
-      setJuzgados(juzgadosDistrito ?? [])
-      setAbogados(abogadosData ?? [])
-      setAmparos(amparosNormalizados)
-      setEsOffline(false)
-      setLoading(false)
-
+      await syncConSupabase()
     } catch (e) {
-      console.error('Amparo error:', e)
-      if (cacheValido) {
-        await usarDatosLocales()
-      } else {
-        router.push('/login')
-      }
+      console.warn('Fallo en sync (amparo):', e)
     }
+
+    await usarDatosLocales(false)
   }
 
   useEffect(() => {
@@ -212,7 +166,15 @@ export default function AmparosPage() {
   return (
     <div style={{ padding: 'clamp(20px, 4vw, 40px) clamp(20px, 5vw, 40px)', width: '100%' }}>
       {esOffline && (
-        <div style={{}}>
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 10,
+          background: 'rgba(212,175,55,0.08)', border: '0.5px solid rgba(212,175,55,0.25)',
+          borderRadius: 10, padding: '10px 16px', marginBottom: 16,
+        }}>
+          <span style={{ fontSize: 15 }}>📡</span>
+          <span style={{ fontSize: 13, color: '#d4af37' }}>
+            Modo sin conexión — mostrando datos guardados localmente. Los cambios se sincronizarán al recuperar internet.
+          </span>
         </div>
       )}
       <ClienteAmparos

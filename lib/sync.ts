@@ -111,12 +111,16 @@ const ORDEN_SYNC = [
 const TABLAS = Object.keys(COLUMNAS)
 
 let ultimaSync = 0
-const COOLDOWN_MS = 30000 // 30 segundos
+const COOLDOWN_MS = 0 // 30 segundos
 
 export async function syncConSupabase() {
   if (!navigator.onLine) return
   if (Date.now() - ultimaSync < COOLDOWN_MS) return
   ultimaSync = Date.now()
+
+  // 🔍 TEMPORAL: ver qué hay en la cola
+  const cola = await query(`SELECT * FROM sync_queue ORDER BY created_at ASC`)
+  console.log('📋 sync_queue:', JSON.stringify(cola, null, 2))
 
   try {
     await subirPendientes()
@@ -130,8 +134,15 @@ export async function syncConSupabase() {
   }
 }
 async function subirPendientes() {
-  const pendientes = await query(`SELECT * FROM sync_queue ORDER BY created_at ASC`)
+  // ✅ Verifica sesión antes de intentar subir
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) {
+    console.warn('⚠️ Sin sesión activa, skip subirPendientes')
+    return
+  }
 
+  const pendientes = await query(`SELECT * FROM sync_queue ORDER BY created_at ASC`)
+  // ... resto igual
   const ordenados = [...pendientes].sort((a, b) => {
     const ia = ORDEN_SYNC.indexOf(a.tabla)
     const ib = ORDEN_SYNC.indexOf(b.tabla)
@@ -279,8 +290,14 @@ async function reconciliarId(tablaOrigen: string, idTemporal: number, idReal: nu
 }
 
 async function descargarFrescos() {
-  // Acumula los IDs que llegaron de Supabase por tabla
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) {
+    console.warn('⚠️ Sin sesión activa, skip descargarFrescos')
+    return
+  }
+
   const idsPorTabla: Record<string, number[]> = {}
+  // ... resto igual
 
   for (const tabla of TABLAS) {
     try {

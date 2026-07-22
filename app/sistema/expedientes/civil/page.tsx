@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
 import { leerSesionLocal } from '@/lib/authLocal'
 import { queryCatalogosLocal, query } from '@/lib/dbHelpers'
+import { syncConSupabase } from '@/lib/sync'
 import ClienteCivilFamiliar from './cliente'
 
 const MATERIA_IDS_CIVIL_FAMILIAR = [1, 2]
@@ -114,20 +115,27 @@ export default function CivilPage() {
 
   useEffect(() => {
     if (!arranqueListo) return
+
     const cargar = async () => {
       const sesionLocal = leerSesionLocal()
       const cacheValido = sesionLocal && sesionLocal.expires_at > Date.now()
 
-      const usarDatosLocales = async () => {
+      const usarDatosLocales = async (offline = true) => {
         try {
           const local = await cargarCivilesLocales()
           setMaterias(local.materias)
           setJuzgados(local.juzgados)
           setExpedientes(local.expedientesLocales)
+
+          // Abogados desde SQLite
+          const abogadosLocales = await query<any>(
+            `SELECT id, nombre_completo FROM usuarios WHERE rol = 'Abogado' AND activo = 1`
+          ).catch(() => [] as any[])
+          setAbogados(abogadosLocales)
         } catch (e) {
           console.error('SQLite error (civil):', e)
         }
-        setEsOffline(true)
+        setEsOffline(offline)
         setLoading(false)
       }
 
@@ -139,73 +147,19 @@ export default function CivilPage() {
           router.push('/login')
           return
         }
-        await usarDatosLocales()
+        await usarDatosLocales(true)
         return
       }
 
+      // ✅ Con conexión: sincroniza primero, luego lee de SQLite local
+      // (igual que Penal — evita depender de RLS para filtrar por usuario)
       try {
-        const { data: materiasData } = await supabase
-          .from('materias').select('id, nombre').in('id', MATERIA_IDS_CIVIL_FAMILIAR)
-
-        const { data: juzgadosData } = await supabase
-          .from('juzgados').select('id, nombre, ciudad, materia_id').in('materia_id', MATERIA_IDS_CIVIL_FAMILIAR)
-
-        const { data: abogadosData } = await supabase
-          .from('usuarios').select('id, nombre_completo').eq('rol', 'Abogado').eq('activo', true)
-
-        const { data: expedientesCiviles, error: errorExpedientes } = await supabase
-          .from('expedientes')
-          .select(`
-            id, numero_expediente, estado, caracter_cliente, contraparte,
-            tipo_juicio, ciudad, fecha_inicio, descripcion, materia_id,
-            clientes ( nombre_completo ),
-            juzgados ( nombre, ciudad ),
-            tareas ( id, fecha_vencimiento, completada ),
-            expedientes_civiles ( estadio_procesal )
-          `)
-          .in('materia_id', MATERIA_IDS_CIVIL_FAMILIAR)
-          .order('created_at', { ascending: false })
-
-        if (errorExpedientes) {
-          console.error('🔴 Error al consultar expedientes (civil):', errorExpedientes)
-        }
-
-        const expedientesNormalizados = (expedientesCiviles ?? []).map((exp: any) => ({
-          id:                exp.id,
-          numero_expediente: exp.numero_expediente,
-          estado:            exp.estado,
-          caracter_cliente:  exp.caracter_cliente,
-          contraparte:       exp.contraparte,
-          tipo_juicio:       exp.tipo_juicio,
-          ciudad:            exp.ciudad,
-          fecha_inicio:      exp.fecha_inicio,
-          descripcion:       exp.descripcion,
-          materia_id:        exp.materia_id,
-          clientes:  exp.clientes ? { nombre_completo: exp.clientes.nombre_completo } : null,
-          juzgados:  exp.juzgados ? { nombre: exp.juzgados.nombre, ciudad: exp.juzgados.ciudad } : null,
-          tareas: (exp.tareas ?? []).map((t: any) => ({
-            id: t.id, fecha_vencimiento: t.fecha_vencimiento, completada: t.completada,
-          })),
-          expedientes_civiles: Array.isArray(exp.expedientes_civiles)
-            ? (exp.expedientes_civiles[0] ?? null)
-            : (exp.expedientes_civiles ?? null),
-        }))
-
-        setMaterias(materiasData ?? [])
-        setJuzgados(juzgadosData ?? [])
-        setAbogados(abogadosData ?? [])
-        setExpedientes(expedientesNormalizados)
-        setEsOffline(false)
-        setLoading(false)
-
+        await syncConSupabase()
       } catch (e) {
-        console.error('Civil error:', e)
-        if (cacheValido) {
-          await usarDatosLocales()
-        } else {
-          router.push('/login')
-        }
+        console.warn('Fallo en sync (civil):', e)
       }
+
+      await usarDatosLocales(false)
     }
 
     cargar()

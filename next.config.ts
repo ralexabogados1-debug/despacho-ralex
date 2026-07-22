@@ -38,14 +38,12 @@ const withPWA = require('@ducanh2912/next-pwa').default({
       },
 
       // ─── 0. SUPABASE ────────────────────────────────────────────────
-      // ✅ SUPABASE_ORIGIN se resuelve en build time, no usa process.env
-      // dentro del SW (lo cual causaba "process is not defined").
-      {
-        urlPattern: ({ url }: any) =>
-          SUPABASE_ORIGIN !== '' && url.origin === SUPABASE_ORIGIN,
-        handler: 'NetworkOnly',
-        options: { cacheName: 'supabase-bypass' },
-      },
+{
+  urlPattern: ({ url }: any) =>
+    url.hostname.endsWith('.supabase.co'),
+  handler: 'NetworkOnly',
+  options: { cacheName: 'supabase-bypass' },
+},
 
       // ─── 0.5 RSC ────────────────────────────────────────────────────
       {

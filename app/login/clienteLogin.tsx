@@ -58,15 +58,18 @@ export default function FormularioLogin({
       const parsed = JSON.parse(raw!)
       const perfil = parsed.perfil ?? {}
       const sesionExistente = leerSesionLocal()
-      const sesion = sesionExistente ?? {
-        id:         perfil.id        ?? 'offline',
-        email:      parsed.email,
-        nombre:     perfil.nombre    ?? parsed.email,
-        rol:        perfil.rol       ?? 'asistente',
-        iniciales:  perfil.iniciales ?? parsed.email.slice(0, 2).toUpperCase(),
-        activo:     true,
-        expires_at: 0,
-      }
+const sesion = sesionExistente ?? {
+  id:         perfil.id        ?? 'offline',
+  email:      parsed.email,
+  nombre:     perfil.nombre    ?? parsed.email,
+  rol:        perfil.rol       ?? 'asistente',
+  iniciales:  perfil.iniciales ?? parsed.email.slice(0, 2).toUpperCase(),
+  // 🔧 Ya no se asume `true`: si el perfil guardado localmente trae `activo`
+  // explícito lo respetamos; si no existe (login offline muy viejo, antes
+  // de este fix), por seguridad asumimos false en vez de true.
+  activo:     perfil.activo ?? false,
+  expires_at: 0,
+}
       guardarSesionLocal({ ...sesion, expires_at: Date.now() + 1000 * 60 * 60 * 24 * 365 })
       router.replace('/sistema/dashboard')
       return true
@@ -115,29 +118,51 @@ export default function FormularioLogin({
 
       const { data, error: loginError } = resultado
 
-      if (loginError || !data.user) {
-        setErrorLocal(loginError?.message || 'Credenciales incorrectas.')
-        setCargando(false)
-        return
-      }
+if (loginError || !data.user) {
+  setErrorLocal(loginError?.message || 'Credenciales incorrectas.')
+  setCargando(false)
+  return
+}
 
-      const user      = data.user
-      const nombre    = user.user_metadata?.nombre_completo ?? email
-      const iniciales = nombre.split(' ').map((p: string) => p[0] ?? '').join('').slice(0, 2).toUpperCase()
-      const rol       = (user.user_metadata?.rol ?? 'asistente').toLowerCase()
+const user = data.user
 
-      await guardarCredsLocal(email, password, { id: user.id, nombre, rol, iniciales })
-      guardarSesionLocal({
-        id:         user.id,
-        email:      user.email ?? '',
-        nombre,
-        rol,
-        iniciales,
-        activo:     true,
-        expires_at: Date.now() + 1000 * 60 * 60 * 24 * 365,
-      })
+// 🔧 Verificar en la tabla `usuarios` si la cuenta ya fue activada por un admin
+const { data: miPerfil, error: errPerfil } = await supabase
+  .from('usuarios')
+  .select('rol, activo, nombre_completo')
+  .eq('auth_id', user.id)
+  .single()
 
-      router.replace('/sistema/dashboard')
+if (errPerfil || !miPerfil) {
+  setErrorLocal('No se encontró tu perfil. Contacta al administrador.')
+  setCargando(false)
+  await supabase.auth.signOut()
+  return
+}
+
+if (!miPerfil.activo) {
+  setErrorLocal('Tu cuenta está pendiente de aprobación por un administrador.')
+  setCargando(false)
+  await supabase.auth.signOut()
+  return
+}
+
+const nombre    = miPerfil.nombre_completo ?? email
+const rol       = (miPerfil.rol ?? 'asistente').toLowerCase()
+const iniciales = nombre.split(' ').map((p: string) => p[0] ?? '').join('').slice(0, 2).toUpperCase()
+
+await guardarCredsLocal(email, password, { id: user.id, nombre, rol, iniciales })
+guardarSesionLocal({
+  id:         user.id,
+  email:      user.email ?? '',
+  nombre,
+  rol,
+  iniciales,
+  activo:     miPerfil.activo,
+  expires_at: Date.now() + 1000 * 60 * 60 * 24 * 365,
+})
+
+router.replace('/sistema/dashboard')
     } catch {
       // Fallback final por si algo inesperado revienta la petición
       await loginOffline(

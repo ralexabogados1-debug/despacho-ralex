@@ -2,7 +2,7 @@
 
 import { hayConexionReal } from '@/lib/checkconnection'
 import { useArranque } from '@/hooks/useArranque'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
 import { leerSesionLocal } from '@/lib/authLocal'
@@ -25,10 +25,10 @@ async function getUserConTimeout(supabase: ReturnType<typeof createBrowserClient
 export default function MiPerfilPage() {
     const arranqueListo = useArranque()
   const router = useRouter()
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  )
+  const supabase = useMemo(() => createBrowserClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+), [])
 
   const [usuario, setUsuario]             = useState<any>(null)
   const [expedientes, setExpedientes]     = useState<any[]>([])
@@ -162,11 +162,12 @@ export default function MiPerfilPage() {
         </div>
       )}
       <PerfilUsuarioCliente
-        usuario={usuario}
-        expedientes={expedientes}
-        conteoTareas={conteoTareas}
-        conteoEventos={conteoEventos}
-      />
+  usuario={usuario}
+  expedientes={expedientes}
+  conteoTareas={conteoTareas}
+  conteoEventos={conteoEventos}
+  onPerfilActualizado={(nombre) => setUsuario((prev: any) => ({ ...prev, nombre_completo: nombre }))}
+/>
     </div>
   )
 }

@@ -25,21 +25,26 @@ export async function actualizarPerfilUsuario(formData: FormData) {
     return { error: 'El nombre completo es obligatorio.' }
   }
 
-  // Nota: solo se actualiza nombre_completo por ahora.
+// Nota: solo se actualiza nombre_completo por ahora.
   // Cuando agreguemos las columnas telefono/direccion a la tabla "usuarios",
   // añadimos aquí sus campos correspondientes al objeto de update.
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('usuarios')
     .update({
       nombre_completo: nombreCompleto,
     })
     .eq('id', perfil.id)
+    .select()
 
   if (error) {
     console.error('⚠️ Supabase Error:', error.message)
     return { error: `Error al guardar: ${error.message}` }
   }
 
-  revalidatePath('/mi-perfil')
+  if (!data || data.length === 0) {
+    return { error: 'No se pudo actualizar el perfil (revisa políticas RLS).' }
+  }
+
+  revalidatePath('/sistema/perfil')
   return { success: true }
 }

@@ -53,10 +53,10 @@ interface PerfilProps {
   expedientes: any[]
   conteoTareas: number
   conteoEventos: number
+  onPerfilActualizado?: (nombre: string) => void
 }
 
-export default function PerfilUsuarioCliente({ usuario, expedientes, conteoTareas, conteoEventos }: PerfilProps) {
-  const { oscuro } = useTema()
+export default function PerfilUsuarioCliente({ usuario, expedientes, conteoTareas, conteoEventos, onPerfilActualizado }: PerfilProps) {  const { oscuro } = useTema()
   const T = oscuro ? T_DARK : T_LIGHT
   const router = useRouter()
 
@@ -312,12 +312,17 @@ export default function PerfilUsuarioCliente({ usuario, expedientes, conteoTarea
               </p>
             )}
 
-            <form action={async (fd) => {
-              setErrorForm(null)
-              const res = await actualizarPerfilUsuario(fd)
-              if (res?.error) setErrorForm(res.error)
-              else setModalAbierto(false)
-            }}>
+           <form action={async (fd) => {
+  setErrorForm(null)
+  const res = await actualizarPerfilUsuario(fd)
+  if (res?.error) {
+    setErrorForm(res.error)
+  } else {
+    const nuevoNombre = fd.get('nombre_completo') as string
+    onPerfilActualizado?.(nuevoNombre)
+    setModalAbierto(false)
+  }
+}}>
               <div style={{ marginBottom: 14 }}>
                 <label style={styles.label}>Nombre completo *</label>
                 <input

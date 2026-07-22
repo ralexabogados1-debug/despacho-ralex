@@ -271,10 +271,16 @@ export default function ClienteCivilFamiliar({
   // como respaldo.
   // ─────────────────────────────────────────────────────────────────────────
   async function manejarEliminar(exp: any) {
-    setEliminando(true)
-    setError(null)
-    try {
-      if (isOnline) {
+  setEliminando(true)
+  setError(null)
+  try {
+    if (isOnline) {
+      // ✅ Si el ID es negativo, el expediente nunca llegó a Supabase
+      // (se creó offline y no sincronizó). Solo hay que borrarlo local.
+      if (exp.id < 0) {
+        await eliminarExpedienteLocal(exp.id)
+        await recargar()
+      } else {
         const supabase = createClient()
         const { error: errSupabase } = await supabase
           .from('expedientes')
@@ -285,22 +291,23 @@ export default function ClienteCivilFamiliar({
 
         await limpiarExpedienteCacheTrasBorrarOnline(exp.id)
         await sincronizar()
-      } else {
-        await eliminarExpedienteLocal(exp.id)
-        await recargar()
       }
-
-      setEliminarObjetivo(null)
-      setDetalleAbierto(null)
-      setMensaje('Expediente eliminado correctamente.')
-      setTimeout(() => setMensaje(null), 3000)
-    } catch (e) {
-      console.error(e)
-      setError('Error al eliminar el expediente: ' + String(e))
-    } finally {
-      setEliminando(false)
+    } else {
+      await eliminarExpedienteLocal(exp.id)
+      await recargar()
     }
+
+    setEliminarObjetivo(null)
+    setDetalleAbierto(null)
+    setMensaje('Expediente eliminado correctamente.')
+    setTimeout(() => setMensaje(null), 3000)
+  } catch (e) {
+    console.error(e)
+    setError('Error al eliminar el expediente: ' + String(e))
+  } finally {
+    setEliminando(false)
   }
+}
 
   const s = getStyles(T, oscuro)
 
@@ -840,13 +847,13 @@ export default function ClienteCivilFamiliar({
                 <strong style={{ color: T.textPrimary }}>{eliminarObjetivo.numero_expediente}</strong>.
                 Esta acción no se puede deshacer.
               </p>
-              {!isOnline && (
-                <div style={{ marginTop: 12 }}>
-                  <Alerta tipo="error" oscuro={oscuro}>
-                    Necesitas conexión a internet para eliminar un expediente.
-                  </Alerta>
-                </div>
-              )}
+              {!isOnline && eliminarObjetivo?.id > 0 && (
+  <div style={{ marginTop: 12 }}>
+    <Alerta tipo="error" oscuro={oscuro}>
+      Necesitas conexión a internet para eliminar este expediente.
+    </Alerta>
+  </div>
+)}
               {error && (
                 <div style={{ marginTop: 12 }}>
                   <Alerta tipo="error" oscuro={oscuro}>{error}</Alerta>
@@ -858,12 +865,16 @@ export default function ClienteCivilFamiliar({
                 Cancelar
               </button>
               <button
-                onClick={() => manejarEliminar(eliminarObjetivo)}
-                disabled={!isOnline || eliminando}
-                style={{ ...s.btnPrimario, background: T.red, opacity: (!isOnline || eliminando) ? 0.5 : 1 }}
-              >
-                {eliminando ? 'Eliminando...' : 'Sí, eliminar'}
-              </button>
+  onClick={() => manejarEliminar(eliminarObjetivo)}
+  disabled={(!isOnline && eliminarObjetivo?.id > 0) || eliminando}
+  style={{
+    ...s.btnPrimario,
+    background: T.red,
+    opacity: ((!isOnline && eliminarObjetivo?.id > 0) || eliminando) ? 0.5 : 1,
+  }}
+>
+  {eliminando ? 'Eliminando...' : 'Sí, eliminar'}
+</button>
             </div>
           </div>
         </div>

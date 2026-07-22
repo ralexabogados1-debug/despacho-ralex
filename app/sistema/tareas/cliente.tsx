@@ -171,7 +171,14 @@ export default function TableroTareasCliente({
     )
 
     // 2. Persistencia
-    if (isOnline) {
+    // ⚠️ Si el id es negativo, la tarea fue creada offline y todavía no
+    // tiene su id real de Supabase (se le asigna al sincronizar). Aunque
+    // haya conexión, forzamos la ruta local para no mandar un id temporal
+    // a un UPDATE de Supabase (no existiría esa fila todavía, o si el id
+    // es muy grande podía romper con "out of range for type integer").
+    const esTemporal = id < 0
+
+    if (isOnline && !esTemporal) {
       const r = await actualizarEstadoTarea(id, estado)
       if (r?.error) {
         setError(r.error)
@@ -202,7 +209,12 @@ export default function TableroTareasCliente({
     // Eliminación instantánea de la UI
     setTareas(prev => prev.filter(t => t.id !== id))
 
-    if (isOnline) {
+    // ⚠️ Misma protección que en cambiarEstado: si el id sigue siendo
+    // temporal (negativo), la tarea no existe aún en Supabase, así que
+    // borramos localmente aunque haya conexión.
+    const esTemporal = id < 0
+
+    if (isOnline && !esTemporal) {
       const r = await eliminarTarea(id)
       if (r?.error) {
         setError(r.error)

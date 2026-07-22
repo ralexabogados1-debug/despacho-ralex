@@ -7,6 +7,7 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
 import { useTema } from '@/app/sistema/layout'
+import { hayConexionReal } from '@/lib/checkconnection'
 import {
   queryDetalleAmparoLocal,
   eliminarExpedienteLocal,
@@ -14,6 +15,7 @@ import {
   actualizarExpedienteAmparoLocal,
   crearTareaLocal,
   toggleTareaLocal,
+  query,
 } from '@/lib/dbHelpers'
 import { syncConSupabase } from '@/lib/sync'
 
@@ -102,6 +104,30 @@ function DetalleAmparoPage() {
   const [creandoTarea, setCreandoTarea] = useState(false)
   const [errorTarea, setErrorTarea] = useState<string | null>(null)
 
+  // 🔧 NUEVO: mientras el expediente tiene ID negativo (aún no
+  // sincronizado), la pantalla se queda "atada" a ese ID para siempre
+  // aunque sync.ts ya haya reconciliado el ID real en SQLite — porque el
+  // estado de React nunca se entera. Esta función, si hay conexión, fuerza
+  // un sync y busca el ID real por numero_expediente (que no cambia con la
+  // reconciliación) para redirigir a la URL correcta. Se usa tanto al
+  // cargar la página como después de guardar cambios offline.
+  const intentarReconciliarYRedirigir = async (numeroExpediente: string) => {
+    try {
+      const conectado = await hayConexionReal()
+      if (!conectado) return
+      await syncConSupabase().catch(() => {})
+      const filas = await query<{ id: number }>(
+        `SELECT id FROM expedientes WHERE numero_expediente = ? AND id > 0 ORDER BY id DESC LIMIT 1`,
+        [numeroExpediente]
+      ).catch(() => [] as any[])
+      if (filas[0]?.id) {
+        router.replace(`/sistema/expedientes/amparo/detalle?id=${filas[0].id}`)
+      }
+    } catch (e) {
+      console.warn('Fallo reconciliando ID de amparo:', e)
+    }
+  }
+
   useEffect(() => {
     if (!id || Number.isNaN(amparoId)) {
       setError(true)
@@ -113,16 +139,30 @@ function DetalleAmparoPage() {
       const local = await queryDetalleAmparoLocal(amparoId)
       if (!local) {
         setError(true)
-        return false
+        return null
       }
       setAmp(local)
       setEsOffline(true)
       setError(false)
-      return true
+      return local
     }
 
     const fetchData = async () => {
-      if (!navigator.onLine) {
+      // ✅ ID negativo = solo existe local (aún no sincronizado)
+      if (amparoId < 0) {
+        const local = await cargarDesdeLocal()
+        setLoading(false)
+        if (local?.numero_expediente) {
+          intentarReconciliarYRedirigir(local.numero_expediente)
+        }
+        return
+      }
+
+      // 🔧 Verificación de conexión REAL (no solo navigator.onLine), igual
+      // que el resto de los módulos de la app.
+      const conectado = await hayConexionReal()
+
+      if (!conectado) {
         try {
           const cargoOffline = await cargarDesdeLocal()
           if (!cargoOffline) setError(true)
@@ -206,7 +246,10 @@ function DetalleAmparoPage() {
     setErrorEliminar(null)
     setEliminando(true)
     try {
-      if (navigator.onLine) {
+      const conectado = await hayConexionReal()
+
+      if (conectado && amparoId > 0) {
+        // ✅ Solo va a Supabase si el ID es positivo (ya sincronizado)
         const { error: delError } = await supabase
           .from('expedientes')
           .delete()
@@ -215,6 +258,7 @@ function DetalleAmparoPage() {
         if (delError) throw delError
         await limpiarExpedienteCacheTrasBorrarOnline(amparoId).catch(() => {})
       } else {
+        // ID negativo (aún no sincronizado) o sin conexión: solo borra local
         await eliminarExpedienteLocal(amparoId)
       }
 
@@ -243,8 +287,18 @@ function DetalleAmparoPage() {
     setErrorGuardar(null)
     setGuardando(true)
     try {
-      if (navigator.onLine) {
-        const { error: expError } = await supabase
+      const conectado = await hayConexionReal()
+
+      // 🔧 FIX: se agrega el guard `amparoId > 0`, igual que ya tenía
+      // manejarEliminar. Sin esto, un expediente creado offline (ID
+      // temporal negativo tipo -Date.now()*1000) intentaba actualizarse
+      // directo en Supabase aunque nunca hubiera sincronizado, y Postgres
+      // tronaba con "value ... is out of range for type integer" porque
+      // ese ID temporal excede el rango de la columna integer (int4).
+      if (conectado && amparoId > 0) {
+        // 🔧 .select() para poder detectar si RLS bloqueó el UPDATE en
+        // silencio (Postgres no regresa error, solo 0 filas afectadas).
+        const { data: updData, error: expError } = await supabase
           .from('expedientes')
           .update({
             numero_expediente: camposEditados.numero_expediente,
@@ -252,10 +306,14 @@ function DetalleAmparoPage() {
             descripcion: camposEditados.descripcion || null,
           })
           .eq('id', amparoId)
+          .select()
 
         if (expError) throw expError
+        if (!updData || updData.length === 0) {
+          throw new Error('No se pudo actualizar el expediente (posible bloqueo de políticas RLS en "expedientes").')
+        }
 
-        const { error: ampError } = await supabase
+        const { data: updAmpData, error: ampError } = await supabase
           .from('expedientes_amparo')
           .update({
             tipo_amparo: camposEditados.tipo_amparo || null,
@@ -264,8 +322,12 @@ function DetalleAmparoPage() {
             acto_reclamado: camposEditados.acto_reclamado || null,
           })
           .eq('expediente_id', amparoId)
+          .select()
 
         if (ampError) throw ampError
+        if (!updAmpData || updAmpData.length === 0) {
+          throw new Error('No se pudo actualizar (posible bloqueo de políticas RLS en "expedientes_amparo").')
+        }
 
         await syncConSupabase().catch(() => {})
       } else {
@@ -283,6 +345,13 @@ function DetalleAmparoPage() {
             acto_reclamado: camposEditados.acto_reclamado || null,
           }
         )
+
+        // 🔧 Si hay conexión pero el expediente aún no tiene ID real,
+        // sincroniza y redirige a la URL con el ID real ya reconciliado,
+        // para que deje de mostrarse el banner de "sin conexión".
+        if (conectado) {
+          await intentarReconciliarYRedirigir(camposEditados.numero_expediente)
+        }
       }
 
       setAmp((prev: any) => ({
@@ -315,9 +384,14 @@ function DetalleAmparoPage() {
     setCreandoTarea(true)
 
     try {
+      const conectado = await hayConexionReal()
       let nuevaTarea: any
 
-      if (navigator.onLine) {
+      // 🔧 FIX: mismo guard `amparoId > 0`. Si el expediente padre no ha
+      // sincronizado, la tarea se crea local con ID temporal y se encola;
+      // reconciliarId() en sync.ts se encarga de actualizar expediente_id
+      // en la tarea cuando el expediente por fin sincronice.
+      if (conectado && amparoId > 0) {
         const { data, error: insError } = await supabase
           .from('tareas')
           .insert({
@@ -363,7 +437,14 @@ function DetalleAmparoPage() {
 
   async function toggleTarea(tareaId: number, completadaActual: boolean) {
     try {
-      if (navigator.onLine) {
+      const conectado = await hayConexionReal()
+
+      // 🔧 FIX: la tarea puede tener su propio ID temporal negativo
+      // (generado con generarIdTemporal() si se creó offline), sin
+      // importar si el expediente padre ya sincronizó o no. Se agrega el
+      // guard `tareaId > 0` para no mandarlo a Supabase mientras siga
+      // pendiente de reconciliación.
+      if (conectado && tareaId > 0) {
         const { error: updError } = await supabase
           .from('tareas')
           .update({ completada: !completadaActual })
@@ -429,7 +510,6 @@ function DetalleAmparoPage() {
         {esOffline && (
           <span style={s.offlineBadge}>
             <span style={{ width: 6, height: 6, borderRadius: '50%', background: T.amber, flexShrink: 0 }} />
-            Mostrando datos guardados sin conexión
           </span>
         )}
       </div>
@@ -727,11 +807,6 @@ function DetalleAmparoPage() {
             <p style={s.modalConfirmTexto}>
               Esta acción eliminará permanentemente el expediente <strong>{amp.numero_expediente}</strong> junto con sus tareas asociadas. No se puede deshacer.
             </p>
-            {!navigator.onLine && (
-              <p style={{ color: T.amber, fontSize: 12.5, marginTop: 8, marginBottom: 0 }}>
-                Sin conexión: se eliminará del dispositivo y se sincronizará con el servidor cuando vuelva la red.
-              </p>
-            )}
             {errorEliminar && (
               <p style={{ color: T.red, fontSize: 12.5, marginTop: 8, marginBottom: 0 }}>{errorEliminar}</p>
             )}

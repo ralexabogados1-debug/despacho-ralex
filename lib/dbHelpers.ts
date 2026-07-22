@@ -266,9 +266,8 @@ export async function queryTareasLocal(): Promise<any[]> {
 }
 
 // JOIN local para eventos
-export async function queryEventosLocal(): Promise<any[]> {
-  const db = await getDb();
-
+export async function queryEventosLocal(usuarioId?: number): Promise<any[]> {
+  const db = await getDb()
   const stmt = db.prepare(`
     SELECT
       ev.id, ev.expediente_id, ev.usuario_id,
@@ -278,13 +277,13 @@ export async function queryEventosLocal(): Promise<any[]> {
     FROM eventos ev
     LEFT JOIN expedientes e ON e.id = ev.expediente_id
     LEFT JOIN usuarios    u ON u.id = ev.usuario_id
+    ${usuarioId ? 'WHERE ev.usuario_id = ?' : ''}
     ORDER BY ev.fecha_hora ASC
   `)
-
+  if (usuarioId) stmt.bind([usuarioId])
   const rows: any[] = []
   while (stmt.step()) rows.push(stmt.getAsObject())
   stmt.free()
-
   return rows.map(r => ({
     ...r,
     expedientes: { numero_expediente: r.numero_expediente ?? null },
@@ -298,7 +297,13 @@ export async function queryEventosLocal(): Promise<any[]> {
 let contadorTemp = 0
 export function generarIdTemporal(): number {
   contadorTemp += 1
-  return -(Date.now() * 1000 + contadorTemp)
+  // ⚠️ Debe caber en el rango de `integer` (int4) de Postgres:
+  // -2,147,483,648 a 2,147,483,647. Antes usábamos Date.now() * 1000,
+  // lo que generaba números de 16 dígitos y provocaba el error
+  // "value -numeros is out of range for type integer" al editar o
+  // sincronizar una tarea/expediente/cliente creado offline.
+  const base = Date.now() % 2_000_000_000 // dentro del rango, ciclo ~23 días
+  return -(base + contadorTemp)
 }
 
 // Busca los datos del usuario actual (tabla usuarios) por email, ya que la
@@ -549,11 +554,18 @@ export async function crearExpedienteCivilLocal(
     const materiaNombre = partes[0]
     tipoJuicio = partes[1] || ''
 
-    const MAPA_MATERIAS: Record<string, number> = {
-      'Civil': 1,
-      'Familiar': 2
-    }
-    materiaId = MAPA_MATERIAS[materiaNombre] ?? null
+    // ✅ CORREGIDO: antes usábamos un mapeo fijo (MAPA_MATERIAS = { Civil: 1,
+    // Familiar: 2 }) que asumía coincidir con los ids reales de la tabla
+    // `materias` en Supabase. Si esos ids cambiaran, el expediente se
+    // guardaría con un materia_id equivocado (como ya pasó con el conteo
+    // del dashboard, donde Familiar terminaba contado como Penal). Ahora
+    // se resuelve dinámicamente desde la tabla local `materias`, igual
+    // que ya hace crearExpedienteAmparoLocal.
+    const [materia] = await query<{ id: number }>(
+      `SELECT id FROM materias WHERE nombre = ?`,
+      [materiaNombre]
+    ).catch(() => [] as any[])
+    materiaId = materia?.id ?? null
   }
 
   const idClienteTemp = generarIdTemporal()
@@ -680,10 +692,6 @@ export async function crearExpedienteCivilLocal(
 // ✍️ Creación offline de un expediente Amparo completo:
 // clientes → expedientes → expedientes_amparo → expediente_abogados (opcional)
 // ─────────────────────────────────────────────────────────────────────────
-// ─────────────────────────────────────────────────────────────────────────
-// ✍️ Creación offline de un expediente Amparo completo:
-// clientes → expedientes → expedientes_amparo → expediente_abogados (opcional)
-// ─────────────────────────────────────────────────────────────────────────
 
 type DatosExpedienteAmparo = {
   cliente_nombre: string // Quejoso
@@ -718,8 +726,6 @@ export async function crearExpedienteAmparoLocal(
     `SELECT id FROM materias WHERE nombre = 'Amparo'`
   ).catch(() => [] as any[])
   const materiaId = materiaAmparo?.id ?? null
-
-  // 1. Cliente (Quejoso)
 
   // 1. Cliente (Quejoso)
   const idClienteTemp = generarIdTemporal()

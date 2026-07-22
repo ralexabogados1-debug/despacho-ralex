@@ -14,6 +14,7 @@ import {
   actualizarExpedienteCivilLocal,
   crearTareaLocal,
   toggleTareaLocal,
+  query,
 } from '@/lib/dbHelpers'
 import { syncConSupabase } from '@/lib/sync'
 
@@ -107,6 +108,29 @@ function DetalleExpedienteCivilPage() {
   const [creandoTarea, setCreandoTarea] = useState(false)
   const [errorTarea, setErrorTarea] = useState<string | null>(null)
 
+  // 🔧 NUEVO: mientras el expediente tiene ID negativo (aún no
+  // sincronizado), la pantalla se queda "atada" a ese ID para siempre
+  // aunque sync.ts ya haya reconciliado el ID real en SQLite — porque el
+  // estado de React nunca se entera. Esta función, si hay conexión, fuerza
+  // un sync y busca el ID real por numero_expediente (que no cambia con la
+  // reconciliación) para redirigir a la URL correcta. Se usa tanto al
+  // cargar la página como después de guardar cambios offline.
+  const intentarReconciliarYRedirigir = async (numeroExpediente: string) => {
+    try {
+      if (!navigator.onLine) return
+      await syncConSupabase().catch(() => {})
+      const filas = await query<{ id: number }>(
+        `SELECT id FROM expedientes WHERE numero_expediente = ? AND id > 0 ORDER BY id DESC LIMIT 1`,
+        [numeroExpediente]
+      ).catch(() => [] as any[])
+      if (filas[0]?.id) {
+        router.replace(`/sistema/expedientes/civil/detalle?id=${filas[0].id}`)
+      }
+    } catch (e) {
+      console.warn('Fallo reconciliando ID de expediente civil:', e)
+    }
+  }
+
   useEffect(() => {
     if (!rawId || Number.isNaN(expedienteId)) {
       setError(true)
@@ -118,15 +142,28 @@ function DetalleExpedienteCivilPage() {
       const local = await queryDetalleCivilLocal(expedienteId)
       if (!local) {
         setError(true)
-        return false
+        return null
       }
       setExp(local)
       setEsOffline(true)
       setError(false)
-      return true
+      return local
     }
 
+    // 🔧 FIX: se quitó una "s" suelta en su propia línea que se había
+    // quedado de una edición anterior y rompía la sintaxis del archivo.
     const fetchData = async () => {
+      // ✅ ID negativo = solo existe local (aún no sincronizado)
+      if (expedienteId < 0) {
+        const local = await cargarDesdeLocal()
+        setLoading(false)
+        if (local?.numero_expediente) {
+          intentarReconciliarYRedirigir(local.numero_expediente)
+        }
+        return
+      }
+
+      // ✅ Sin conexión = cargar local
       if (!navigator.onLine) {
         try {
           const cargoOffline = await cargarDesdeLocal()
@@ -202,19 +239,18 @@ function DetalleExpedienteCivilPage() {
     setErrorEliminar(null)
     setEliminando(true)
     try {
-      if (navigator.onLine) {
+      if (navigator.onLine && expedienteId > 0) {
+        // ✅ Solo va a Supabase si el ID es positivo (ya sincronizó)
         const { error: delError } = await supabase
           .from('expedientes')
           .delete()
           .eq('id', expedienteId)
-
         if (delError) throw delError
-
         await limpiarExpedienteCacheTrasBorrarOnline(expedienteId).catch(() => {})
       } else {
+        // ID negativo o sin conexión: solo borra local
         await eliminarExpedienteLocal(expedienteId)
       }
-
       router.push('/sistema/expedientes/civil')
     } catch (e: any) {
       setErrorEliminar(e?.message ?? 'No se pudo eliminar el expediente civil.')
@@ -240,7 +276,13 @@ function DetalleExpedienteCivilPage() {
     setErrorGuardar(null)
     setGuardando(true)
     try {
-      if (navigator.onLine) {
+      // 🔧 FIX: se agrega el guard `expedienteId > 0`, igual que ya tenía
+      // manejarEliminar. Sin esto, un expediente creado offline (ID
+      // temporal negativo generado con generarIdTemporal(), que excede el
+      // rango de la columna integer en Postgres) intentaba actualizarse
+      // directo en Supabase aunque nunca hubiera sincronizado, y Postgres
+      // tronaba con "value ... is out of range for type integer".
+      if (navigator.onLine && expedienteId > 0) {
         const { error: expError } = await supabase
           .from('expedientes')
           .update({
@@ -266,6 +308,13 @@ function DetalleExpedienteCivilPage() {
           contraparte: camposEditados.contraparte || null,
           ciudad: camposEditados.ciudad || null,
         })
+
+        // 🔧 Si hay conexión pero el expediente aún no tiene ID real,
+        // sincroniza y redirige a la URL con el ID real ya reconciliado,
+        // para que deje de mostrarse el banner de "sin conexión".
+        if (navigator.onLine) {
+          await intentarReconciliarYRedirigir(camposEditados.numero_expediente)
+        }
       }
 
       setExp((prev: any) => ({
@@ -297,7 +346,11 @@ function DetalleExpedienteCivilPage() {
     try {
       let nuevaTarea: any
 
-      if (navigator.onLine) {
+      // 🔧 FIX: mismo guard `expedienteId > 0`. Si el expediente padre no
+      // ha sincronizado, la tarea se crea local con ID temporal y se
+      // encola; reconciliarId() en sync.ts actualiza expediente_id en la
+      // tarea cuando el expediente por fin sincronice.
+      if (navigator.onLine && expedienteId > 0) {
         const { data, error: insError } = await supabase
           .from('tareas')
           .insert({
@@ -343,7 +396,12 @@ function DetalleExpedienteCivilPage() {
 
   async function toggleTarea(tareaId: number, completadaActual: boolean) {
     try {
-      if (navigator.onLine) {
+      // 🔧 FIX: la tarea puede tener su propio ID temporal negativo
+      // (generado con generarIdTemporal() si se creó offline), sin
+      // importar si el expediente padre ya sincronizó o no. Se agrega el
+      // guard `tareaId > 0` para no mandarlo a Supabase mientras siga
+      // pendiente de reconciliación.
+      if (navigator.onLine && tareaId > 0) {
         const { error: updError } = await supabase
           .from('tareas')
           .update({ completada: !completadaActual })
@@ -420,7 +478,6 @@ function DetalleExpedienteCivilPage() {
         {esOffline && (
           <span style={s.offlineBadge}>
             <span style={{ width: 6, height: 6, borderRadius: '50%', background: T.amber, flexShrink: 0 }} />
-            Mostrando datos guardados sin conexión
           </span>
         )}
       </div>

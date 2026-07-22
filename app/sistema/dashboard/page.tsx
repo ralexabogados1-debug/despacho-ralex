@@ -98,7 +98,7 @@ async function cargarDatosLocales() {
 const [{ total: cCF }] = await query<{ total: number }>(`
   SELECT COUNT(*) as total
   FROM expedientes
-  WHERE materia_id IN (1, 3)
+  WHERE materia_id IN (1, 2)
   AND cliente_id IS NOT NULL
 `)
 
@@ -106,7 +106,7 @@ const [{ total: cCF }] = await query<{ total: number }>(`
 const [{ total: cP }] = await query<{ total: number }>(`
   SELECT COUNT(*) as total
   FROM expedientes
-  WHERE materia_id = 2
+  WHERE materia_id = 3
   AND cliente_id IS NOT NULL
 `)
 

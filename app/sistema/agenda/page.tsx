@@ -16,10 +16,6 @@ interface ExpedienteOpcion {
   numero_expediente: string
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// 🔑 Helper: getUser con timeout — nunca lanza error (mismo patrón que
-// dashboard/civil/amparo)
-// ─────────────────────────────────────────────────────────────────────────
 async function getUserConTimeout(supabase: ReturnType<typeof createBrowserClient>, ms = 4000) {
   try {
     const resultado = await Promise.race([
@@ -34,7 +30,7 @@ async function getUserConTimeout(supabase: ReturnType<typeof createBrowserClient
 }
 
 export default function CalendarioPage() {
-  const arranqueListo = useArranque() // 🆕
+  const arranqueListo = useArranque()
   const router = useRouter()
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -47,15 +43,21 @@ export default function CalendarioPage() {
   const [esOffline, setEsOffline] = useState(false)
 
   useEffect(() => {
-    if (!arranqueListo) return 
+    if (!arranqueListo) return
     const cargar = async () => {
       const sesionLocal = leerSesionLocal()
       const cacheValido = sesionLocal && sesionLocal.expires_at > Date.now()
 
       const usarDatosLocales = async () => {
         try {
+          const [usuarioLocal] = await query<any>(
+            `SELECT id FROM usuarios WHERE email = ?`,
+            [sesionLocal?.email ?? '']
+          )
+          const usuarioId = usuarioLocal?.id
+
           const [eventosLocales, expedientesLocales] = await Promise.all([
-            queryEventosLocal(),
+            queryEventosLocal(usuarioId),
             query<ExpedienteOpcion>(
               `SELECT id, numero_expediente FROM expedientes ORDER BY numero_expediente ASC`
             ),
@@ -69,10 +71,6 @@ export default function CalendarioPage() {
         setLoading(false)
       }
 
-      // 🔧 Si el navegador ya sabe que no hay conexión, ni intentamos el
-      // fetch a Supabase — evita el error de red innecesario y el ruido en
-      // consola (Failed to fetch / ERR_INTERNET_DISCONNECTED) cuando está
-      // completamente offline.
       const user = navigator.onLine
         ? await getUserConTimeout(supabase)
         : null
@@ -90,14 +88,19 @@ export default function CalendarioPage() {
         const { data: expedientesData, error: errorExp } = await supabase
           .from('expedientes')
           .select('id, numero_expediente')
-        // 🔴 IMPORTANTE: loguear SIEMPRE el error de cada fetch — nunca
-        // silenciarlo con ?? [], o un fallo de RLS se vuelve indistinguible
-        // de "no hay datos" (ver Arquitectura_Offline sección 12.5).
         if (errorExp) console.error('🔴 Error cargando expedientes:', errorExp)
+
+        const { data: usuarioData } = await supabase
+          .from('usuarios')
+          .select('id')
+          .eq('auth_id', user.id)
+          .single()
+        const usuarioId = usuarioData?.id
 
         const { data: eventosData, error: errorEv } = await supabase
           .from('eventos')
           .select(`id, titulo, fecha_hora, tipo_evento, expedientes ( numero_expediente )`)
+          .eq('usuario_id', usuarioId)
         if (errorEv) console.error('🔴 Error cargando eventos:', errorEv)
 
         setExpedientes(expedientesData ?? [])

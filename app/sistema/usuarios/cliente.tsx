@@ -60,34 +60,39 @@ export default function UsuariosCliente({ usuariosIniciales, metricas }: Usuario
   const styles = useMemo(() => getStyles(T), [T])
 
   const router = useRouter()
-  const [busqueda, setBusqueda]           = useState('')
+const [usuarios, setUsuarios]           = useState(usuariosIniciales)
+const [busqueda, setBusqueda]           = useState('')
   const [filtroRol, setFiltroRol]         = useState('Todos')
   const [, startTransition]               = useTransition()
   const [usuarioCargando, setUsuarioCargando] = useState<number | null>(null)
   const [mensaje, setMensaje]             = useState<string | null>(null)
 
-  const usuariosFiltrados = usuariosIniciales.filter((u) => {
-    const ok = u.nombre_completo.toLowerCase().includes(busqueda.toLowerCase()) ||
-               u.email.toLowerCase().includes(busqueda.toLowerCase())
-    return ok && (filtroRol === 'Todos' || u.rol === filtroRol)
-  })
+  const usuariosFiltrados = usuarios.filter((u) => {
+  const ok = u.nombre_completo.toLowerCase().includes(busqueda.toLowerCase()) ||
+             u.email.toLowerCase().includes(busqueda.toLowerCase())
+  return ok && (filtroRol === 'Todos' || u.rol === filtroRol)
+})
 
-  const pendientesAprobacion = usuariosIniciales.filter((u) => !u.activo)
+const pendientesAprobacion = usuarios.filter((u) => !u.activo)
 
   function manejarCambioEstado(usuarioId: number, estadoActual: boolean) {
-    setUsuarioCargando(usuarioId)
-    setMensaje(null)
-    startTransition(async () => {
-      const res = await cambiarEstadoUsuario(usuarioId, !estadoActual)
-      setUsuarioCargando(null)
-      if (res?.error) {
-        setMensaje('Error: ' + res.error)
-      } else {
-        setMensaje(!estadoActual ? 'Usuario activado correctamente.' : 'Usuario suspendido.')
-        setTimeout(() => setMensaje(null), 3000)
-      }
-    })
-  }
+  setUsuarioCargando(usuarioId)
+  setMensaje(null)
+  startTransition(async () => {
+    const res = await cambiarEstadoUsuario(usuarioId, !estadoActual)
+    setUsuarioCargando(null)
+    if (res?.error) {
+      setMensaje('Error: ' + res.error)
+    } else {
+      // 🔧 Actualiza el estado local para reflejar el cambio sin recargar
+      setUsuarios(prev =>
+        prev.map(u => u.id === usuarioId ? { ...u, activo: !estadoActual } : u)
+      )
+      setMensaje(!estadoActual ? 'Usuario activado correctamente.' : 'Usuario suspendido.')
+      setTimeout(() => setMensaje(null), 3000)
+    }
+  })
+}
 
   return (
     <>
